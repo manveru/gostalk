@@ -1,0 +1,5 @@
+package gostalker
+
+import (
+  "testing"
+)
