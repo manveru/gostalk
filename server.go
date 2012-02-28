@@ -2,14 +2,14 @@ package gostalker
 
 import (
   "bufio"
-  "strings"
-  "runtime/debug"
   "net"
   "os"
+  "runtime/debug"
+  "strings"
 )
 
 type Server struct {
-  logger Logger
+  logger   Logger
   getJobId chan uint64
 }
 
@@ -59,28 +59,50 @@ func (server *Server) acceptFinalize(conn net.Conn) {
 
 func respond(cmd *Cmd) (response Response) {
   switch cmd.name {
-  case "bury": response = cmd.bury()
-  case "delete": response = cmd.delete()
-  case "ignore": response = cmd.ignore()
-  case "kick": response = cmd.kick()
-  case "list-tubes": response = cmd.listTubes()
-  case "list-tubes-watched": response = cmd.listTubesWatched()
-  case "list-tube-used": response = cmd.listTubeUsed()
-  case "pause-tube": response = cmd.pauseTube()
-  case "peek-buried": response = cmd.peekBuried()
-  case "peek": response = cmd.peek()
-  case "peek-delayed": response = cmd.peekDelayed()
-  case "peek-ready": response = cmd.peekReady()
-  case "put": response = cmd.put()
-  case "quit": response = cmd.quit()
-  case "reserve": response = cmd.reserve()
-  case "stats": response = cmd.stats()
-  case "stats-job": response = cmd.statsJob()
-  case "stats-tube": response = cmd.statsTube()
-  case "touch": response = cmd.touch()
-  case "use": response = cmd.use()
-  case "watch": response = cmd.watch()
-  default: response = UNKNOWN_COMMAND
+  case "bury":
+    response = cmd.bury()
+  case "delete":
+    response = cmd.delete()
+  case "ignore":
+    response = cmd.ignore()
+  case "kick":
+    response = cmd.kick()
+  case "list-tubes":
+    response = cmd.listTubes()
+  case "list-tubes-watched":
+    response = cmd.listTubesWatched()
+  case "list-tube-used":
+    response = cmd.listTubeUsed()
+  case "pause-tube":
+    response = cmd.pauseTube()
+  case "peek-buried":
+    response = cmd.peekBuried()
+  case "peek":
+    response = cmd.peek()
+  case "peek-delayed":
+    response = cmd.peekDelayed()
+  case "peek-ready":
+    response = cmd.peekReady()
+  case "put":
+    response = cmd.put()
+  case "quit":
+    response = cmd.quit()
+  case "reserve":
+    response = cmd.reserve()
+  case "stats":
+    response = cmd.stats()
+  case "stats-job":
+    response = cmd.statsJob()
+  case "stats-tube":
+    response = cmd.statsTube()
+  case "touch":
+    response = cmd.touch()
+  case "use":
+    response = cmd.use()
+  case "watch":
+    response = cmd.watch()
+  default:
+    response = UNKNOWN_COMMAND
   }
 
   return
@@ -88,7 +110,9 @@ func respond(cmd *Cmd) (response Response) {
 
 func readCommand(reader Reader) (cmd *Cmd, err error) {
   bline, _, err := reader.ReadLine()
-  if err != nil { return }
+  if err != nil {
+    return
+  }
 
   sline := string(bline)
   chunks := strings.Fields(sline)

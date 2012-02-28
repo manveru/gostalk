@@ -5,11 +5,10 @@ import (
 )
 
 type Job struct {
-  Id uint64
+  Id       uint64
   Priority int
-  Created time.Time
-  Delayed time.Duration
+  Created  time.Time
+  Delayed  time.Duration
   Reserved time.Duration
-  Body []byte
+  Body     []byte
 }
-
