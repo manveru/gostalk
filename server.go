@@ -1,42 +1,107 @@
 package gostalker
 
 import (
-  "bufio"
   "net"
   "os"
+  "time"
   "runtime/debug"
   "strings"
 )
 
 type Server struct {
   logger   Logger
-  getJobId chan uint64
+  getJobId chan JobId
+  tubes    map[string]*Tube
+  pid int
+  startedAt time.Time
+  currentConnectionCount uint
+  totalConnectionCount uint
+  commandUsage map[string]uint
+}
+
+func newServer(logger Logger) (server *Server) {
+  server = &Server{
+    logger: logger,
+    getJobId: make(chan JobId, 42),
+    tubes: make(map[string]*Tube),
+    currentConnectionCount: 0,
+    totalConnectionCount: 0,
+    pid: os.Getpid(),
+    startedAt: time.Now(),
+    commandUsage: map[string]uint{
+      "bury": 0,
+      "delete": 0,
+      "ignore": 0,
+      "kick": 0,
+      "list-tubes": 0,
+      "list-tubes-watched": 0,
+      "list-tube-used": 0,
+      "pause-tube": 0,
+      "peek-buried": 0,
+      "peek": 0,
+      "peek-delayed": 0,
+      "peek-ready": 0,
+      "put": 0,
+      "quit": 0,
+      "reserve": 0,
+      "reserve-with-timeout": 0,
+      "stats": 0,
+      "stats-job": 0,
+      "stats-tube": 0,
+      "touch": 0,
+      "use": 0,
+      "watch": 0,
+    },
+  }
+
+  go server.runGetJobId()
+
+  return
 }
 
 func (server *Server) runGetJobId() {
-  var n uint64
+  var n JobId
   for {
     server.getJobId <- n
     n = n + 1
   }
 }
 
+func (server *Server) findOrCreateTube(name string) *Tube {
+  found, ok := server.tubes[name]
+
+  if !ok {
+    found = newTube(name)
+    server.tubes[name] = found
+  }
+
+  return found
+}
+
 func (server *Server) accept(conn net.Conn) {
   defer server.acceptFinalize(conn)
+  server.totalConnectionCount += 1
+  server.currentConnectionCount += 1
 
-  reader := bufio.NewReader(conn)
-  client := &Client{conn, reader}
+  client := newClient(conn, server.findOrCreateTube("default"))
 
   for {
-    cmd, err := readCommand(reader)
-    server.exitOn("readCommand", err)
+    cmd, err := readCommand(client.reader)
+    if err != nil {
+      server.log("readCommand", err)
+      return
+    }
 
     cmd.server = server
     cmd.client = client
     server.logf("cmd: %#v(%#v)", cmd.name, cmd.args)
 
-    response := respond(cmd)
+    go respond(cmd)
+    response := <-cmd.respondChan
 
+    if response != UNKNOWN_COMMAND {
+      cmd.server.commandUsage[cmd.name] += 1
+    }
     // magic :( but empty string indicates that we want to close the connection.
     if response == "" {
       return
@@ -55,57 +120,58 @@ func (server *Server) acceptFinalize(conn net.Conn) {
 
   server.logf("Closing Connection: %#v", conn)
   conn.Close()
+  server.currentConnectionCount -= 1
 }
 
-func respond(cmd *Cmd) (response Response) {
+func respond(cmd *Cmd) {
   switch cmd.name {
   case "bury":
-    response = cmd.bury()
+    cmd.bury()
   case "delete":
-    response = cmd.delete()
+    cmd.delete()
   case "ignore":
-    response = cmd.ignore()
+    cmd.ignore()
   case "kick":
-    response = cmd.kick()
+    cmd.kick()
   case "list-tubes":
-    response = cmd.listTubes()
+    cmd.listTubes()
   case "list-tubes-watched":
-    response = cmd.listTubesWatched()
+    cmd.listTubesWatched()
   case "list-tube-used":
-    response = cmd.listTubeUsed()
+    cmd.listTubeUsed()
   case "pause-tube":
-    response = cmd.pauseTube()
+    cmd.pauseTube()
   case "peek-buried":
-    response = cmd.peekBuried()
+    cmd.peekBuried()
   case "peek":
-    response = cmd.peek()
+    cmd.peek()
   case "peek-delayed":
-    response = cmd.peekDelayed()
+    cmd.peekDelayed()
   case "peek-ready":
-    response = cmd.peekReady()
+    cmd.peekReady()
   case "put":
-    response = cmd.put()
+    cmd.put()
   case "quit":
-    response = cmd.quit()
+    cmd.quit()
   case "reserve":
-    response = cmd.reserve()
+    cmd.reserve()
+  case "reserve-with-timeout":
+    cmd.reserveWithTimeout()
   case "stats":
-    response = cmd.stats()
+    cmd.stats()
   case "stats-job":
-    response = cmd.statsJob()
+    cmd.statsJob()
   case "stats-tube":
-    response = cmd.statsTube()
+    cmd.statsTube()
   case "touch":
-    response = cmd.touch()
+    cmd.touch()
   case "use":
-    response = cmd.use()
+    cmd.use()
   case "watch":
-    response = cmd.watch()
+    cmd.watch()
   default:
-    response = UNKNOWN_COMMAND
+    cmd.respond(UNKNOWN_COMMAND)
   }
-
-  return
 }
 
 func readCommand(reader Reader) (cmd *Cmd, err error) {
@@ -118,8 +184,9 @@ func readCommand(reader Reader) (cmd *Cmd, err error) {
   chunks := strings.Fields(sline)
 
   cmd = &Cmd{
-    name: chunks[0],
-    args: chunks[1:],
+    respondChan: make(chan string),
+    name:        chunks[0],
+    args:        chunks[1:],
   }
 
   return
