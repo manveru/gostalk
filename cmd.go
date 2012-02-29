@@ -3,7 +3,6 @@ package gostalker
 import (
   "fmt"
   "io"
-  "runtime"
   "syscall"
   "strconv"
   "time"
@@ -16,11 +15,11 @@ type Cmd struct {
   name        string
   args        []string
   respondChan chan string
+  closeConn chan bool
 }
 
 func (cmd *Cmd) respond(res string) {
   cmd.respondChan <- res
-  runtime.Goexit()
 }
 
 func (cmd *Cmd) assertNumberOfArguments(n int) {
@@ -200,20 +199,51 @@ func (cmd *Cmd) put() {
   }
 
   id := <-cmd.server.getJobId
-  job := &Job{id, priority, time.Now(), time.Duration(delay), time.Duration(ttr), body}
+  job := &Job{
+    id: id,
+    priority: priority,
+    created: time.Now(),
+    delay: time.Now().Add(time.Duration(delay) * time.Second),
+    ttr: time.Duration(ttr),
+    body: body,
+  }
 
   cmd.server.logf("job: %v", job)
 
-  cmd.client.usedTube.delayedPut(job)
+  tube := cmd.client.usedTube
+  tube.jobSupply <-job
   cmd.respond(fmt.Sprintf("INSERTED %d\r\n", job.id))
 }
 
 func (cmd *Cmd) quit() {
-  cmd.respond("")
+  cmd.assertNumberOfArguments(0)
+  cmd.closeConn <-true
 }
+
 func (cmd *Cmd) reserve() {
-  cmd.respond(INTERNAL_ERROR)
+  cmd.assertNumberOfArguments(0)
+
+  request := &jobReserveRequest{
+    success: make(chan *Job),
+    cancel: make(chan bool),
+  }
+
+  tubeCount := -1
+  for _, tube := range(cmd.client.watchedTubes) {
+    go func(){ tube.jobDemand <-request }()
+    tubeCount += 1
+  }
+
+  cmd.server.logf("tubeCount: %d", tubeCount)
+  job := <-request.success
+  for i := 0; i < tubeCount; i++ {
+    cmd.server.logf("i: %d", i)
+    request.cancel <-true
+  }
+
+  cmd.respond(job.reservedString())
 }
+
 func (cmd *Cmd) reserveWithTimeout() {
   cmd.assertNumberOfArguments(1) // seconds
   seconds := cmd.getInt(0)
@@ -229,9 +259,12 @@ func (cmd *Cmd) reserveWithTimeout() {
     cmd.respond("TIMED_OUT\r\n")
   }
 }
+
 func (cmd *Cmd) stats() {
   cmd.assertNumberOfArguments(0)
   server := cmd.server
+  urgent, ready, reserved, delayed, buried := server.statJobs()
+
   raw := map[string]interface{}{
     "version": GOSTALKER_VERSION,
     "total-connections": server.totalConnectionCount,
@@ -240,6 +273,11 @@ func (cmd *Cmd) stats() {
     "uptime": time.Since(cmd.server.startedAt).Seconds(),
     "max-job-size":  JOB_DATA_SIZE_LIMIT,
     "current-tubes": len(server.tubes),
+    "current-jobs-urgent": urgent,
+    "current-jobs-ready": ready,
+    "current-jobs-reserved": reserved,
+    "current-jobs-delayed": delayed,
+    "current-jobs-buried": buried,
   }
 
   for key, value := range(server.commandUsage) {
@@ -258,11 +296,7 @@ func (cmd *Cmd) stats() {
   }
 
   /*
-  raw["current-jobs-urgent"] = 1234 // is the number of ready jobs with priority < 1024.
-  raw["current-jobs-ready"] = 1234 // is the number of jobs in the ready queue.
-  raw["current-jobs-reserved"] = 1234 // is the number of jobs reserved by all clients.
-  raw["current-jobs-delayed"] = 1234 // is the number of delayed jobs.
-  raw["current-jobs-buried"] = 1234 // is the number of buried jobs.
+  TODO: those still need implementation
   raw["job-timeouts"] = 1234 // is the cumulative count of times a job has timed out.
   raw["total-jobs"] = 1234 // is the cumulative count of jobs created.
   raw["current-producers"] = 1234 // is the number of open connections that have each

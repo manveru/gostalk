@@ -1,76 +1,89 @@
 package gostalker
 
+/*
+dsal | tube has jobs that are ready or not.  tube has channels to connections wanting jobs and new jobs coming in.
+dsal | At any point there's either:  no jobs and no workers, no jobs and some workers, jobs and no workers or jobs and workers.  Just need to cover those cases and transitions between them.
+*/
+
 import (
   "container/heap"
-  "sync"
+  "fmt"
 )
+
+type jobReserveRequest struct {
+  success chan *Job
+  cancel chan bool
+}
 
 type Tube struct {
   name          string
-
   ready         *readyJobs
-  readyMutex    *sync.Mutex
-
   reserved      *reservedJobs
-  reservedMutex *sync.Mutex
-
   buried        *buriedJobs
-  buriedMutex   *sync.Mutex
-
   delayed       *delayedJobs
-  delayedMutex  *sync.Mutex
+
+  jobDemand chan *jobReserveRequest
+  jobSupply chan *Job
+
+  statUrgent int
+  statReady int
+  statReserved int
+  statDelayed int
+  statBuried int
 }
 
 func newTube(name string) (tube *Tube) {
   tube = &Tube{
     name:          name,
-
-    ready:         &readyJobs{},
-    readyMutex:    &sync.Mutex{},
-
-    reserved:      &reservedJobs{},
-    reservedMutex: &sync.Mutex{},
-
+    ready:         newReadyJobs(),
+    reserved:      newReservedJobs(),
     buried:        newBuriedJobs(),
-    buriedMutex:   &sync.Mutex{},
-
-    delayed:       &delayedJobs{},
-    delayedMutex:  &sync.Mutex{},
+    delayed:       newDelayedJobs(),
+    jobDemand: make(chan *jobReserveRequest),
+    jobSupply: make(chan *Job),
   }
 
-  heap.Init(tube.ready)
-  heap.Init(tube.reserved)
-  heap.Init(tube.delayed)
+  go func(){
+    for {
+      if tube.ready.Len() > 0 {
+        fmt.Println("> 0")
+        select {
+        case job := <-tube.jobSupply:
+          tube.put(job)
+        case request := <-tube.jobDemand:
+          fmt.Println("job demanded")
+          select {
+          case request.success <- tube.reserve():
+            fmt.Println("job supplied")
+          case <-request.cancel:
+            fmt.Println("job supply canceled")
+          }
+        }
+      } else {
+        select {
+        case job := <-tube.jobSupply:
+          tube.put(job)
+        }
+      }
+    }
+  }()
 
   return
 }
 
-func heapPush(mutex *sync.Mutex, arr heap.Interface, job *Job) {
-  mutex.Lock()
-  heap.Push(arr, job)
-  mutex.Unlock()
-}
-
-func heapPop(mutex *sync.Mutex, arr heap.Interface) (job *Job) {
-  mutex.Lock()
-  job = heap.Pop(arr).(*Job)
-  mutex.Unlock()
+func (tube *Tube) reserve() (job *Job) {
+  job = heap.Pop(tube.ready).(*Job)
+  tube.statReady = tube.ready.Len()
+  heap.Push(tube.reserved, job)
+  tube.statReserved = tube.reserved.Len()
   return
 }
 
-func (tube *Tube) readyPut(job *Job) {
-  heapPush(tube.readyMutex, tube.ready, job)
+func (tube *Tube) put(job *Job) {
+  fmt.Println("push job", job)
+  heap.Push(tube.ready, job)
+  tube.statReady = tube.ready.Len()
+  if job.priority < 1024 {
+    tube.statUrgent += 1
+  }
 }
-
-func (tube *Tube) readyReserve() (job *Job) {
-  return heapPop(tube.readyMutex, tube.ready)
-}
-
-func (tube *Tube) delayedPut(job *Job) {
-  heapPush(tube.delayedMutex, tube.delayed, job)
-}
-func (tube *Tube) reservedRelease(id JobId) {}
-func (tube *Tube) reservedDelete(id JobId)  {}
-func (tube *Tube) reservedBury(id JobId)    {}
-func (tube *Tube) buriedDelete(id JobId)    {}
-func (tube *Tube) buriedKick(id JobId)      {}

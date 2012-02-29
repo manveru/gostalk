@@ -10,8 +10,8 @@ type Job struct {
   id       JobId
   priority uint32
   created  time.Time
-  delayed  time.Duration
-  reserved time.Duration
+  delay  time.Time
+  ttr time.Duration
   body     []byte
 }
 

@@ -35,6 +35,18 @@ const (
   JOB_TOO_BIG         = "JOB_TOO_BIG\r\n"
 )
 
+type GostalkerError struct {
+  msg string
+}
+
+func (e GostalkerError) Error() string {
+  return e.msg
+}
+
+func newError(msg string) (*GostalkerError) {
+  return &GostalkerError{msg: msg}
+}
+
 type Logger interface {
   Println(v ...interface{})
   Printf(string, ...interface{})

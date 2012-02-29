@@ -86,28 +86,10 @@ func (server *Server) accept(conn net.Conn) {
   client := newClient(conn, server.findOrCreateTube("default"))
 
   for {
-    cmd, err := readCommand(client.reader)
+    err := processCommand(server, client)
     if err != nil {
-      server.log("readCommand", err)
+      server.logf("Error in processCommand: %#v", err)
       return
-    }
-
-    cmd.server = server
-    cmd.client = client
-    server.logf("cmd: %#v(%#v)", cmd.name, cmd.args)
-
-    go respond(cmd)
-    response := <-cmd.respondChan
-
-    if response != UNKNOWN_COMMAND {
-      cmd.server.commandUsage[cmd.name] += 1
-    }
-    // magic :( but empty string indicates that we want to close the connection.
-    if response == "" {
-      return
-    } else {
-      server.logf("response: %#v", response)
-      conn.Write([]byte(response))
     }
   }
 }
@@ -123,7 +105,65 @@ func (server *Server) acceptFinalize(conn net.Conn) {
   server.currentConnectionCount -= 1
 }
 
-func respond(cmd *Cmd) {
+
+func processCommand(server *Server, client *Client) (err error) {
+  cmd, err := readCommand(client.reader)
+
+  if err != nil {
+    server.log("readCommand", err)
+    return
+  }
+
+  defer func(){
+    close(cmd.closeConn)
+    close(cmd.respondChan)
+  }()
+
+  cmd.server = server
+  cmd.client = client
+  server.logf("cmd: %#v(%#v)", cmd.name, cmd.args)
+
+  unknownCommandChan := make(chan bool)
+  go executeCommand(cmd, unknownCommandChan)
+
+  response := ""
+
+  select {
+  case <-unknownCommandChan:
+    response = UNKNOWN_COMMAND
+  case response = <-cmd.respondChan:
+    cmd.server.commandUsage[cmd.name] += 1
+  case <-cmd.closeConn:
+    return newError("Close Connection")
+  case <-time.After(5 * time.Second):
+    response = TIMED_OUT
+  }
+
+  server.log("response:", response)
+  client.conn.Write([]byte(response))
+  return
+}
+
+func readCommand(reader Reader) (cmd *Cmd, err error) {
+  bline, _, err := reader.ReadLine()
+  if err != nil {
+    return
+  }
+
+  sline := string(bline)
+  chunks := strings.Fields(sline)
+
+  cmd = &Cmd{
+    respondChan: make(chan string),
+    closeConn: make(chan bool),
+    name:        chunks[0],
+    args:        chunks[1:],
+  }
+
+  return
+}
+
+func executeCommand(cmd *Cmd, unknownCommandChan chan bool) {
   switch cmd.name {
   case "bury":
     cmd.bury()
@@ -170,23 +210,17 @@ func respond(cmd *Cmd) {
   case "watch":
     cmd.watch()
   default:
-    cmd.respond(UNKNOWN_COMMAND)
+    unknownCommandChan <- true
   }
 }
 
-func readCommand(reader Reader) (cmd *Cmd, err error) {
-  bline, _, err := reader.ReadLine()
-  if err != nil {
-    return
-  }
-
-  sline := string(bline)
-  chunks := strings.Fields(sline)
-
-  cmd = &Cmd{
-    respondChan: make(chan string),
-    name:        chunks[0],
-    args:        chunks[1:],
+func (server *Server) statJobs() (urgent, ready, reserved, delayed, buried int) {
+  for _, tube := range(server.tubes) {
+    urgent += tube.statUrgent
+    ready += tube.statReady
+    reserved += tube.statReserved
+    delayed += tube.statDelayed
+    buried += tube.statBuried
   }
 
   return
