@@ -12,38 +12,38 @@ import (
 
 type jobReserveRequest struct {
   success chan *Job
-  cancel chan bool
+  cancel  chan bool
 }
 
 type Tube struct {
-  name          string
-  ready         *readyJobs
-  reserved      *reservedJobs
-  buried        *buriedJobs
-  delayed       *delayedJobs
+  name     string
+  ready    *readyJobs
+  reserved *reservedJobs
+  buried   *buriedJobs
+  delayed  *delayedJobs
 
   jobDemand chan *jobReserveRequest
   jobSupply chan *Job
 
-  statUrgent int
-  statReady int
+  statUrgent   int
+  statReady    int
   statReserved int
-  statDelayed int
-  statBuried int
+  statDelayed  int
+  statBuried   int
 }
 
 func newTube(name string) (tube *Tube) {
   tube = &Tube{
-    name:          name,
-    ready:         newReadyJobs(),
-    reserved:      newReservedJobs(),
-    buried:        newBuriedJobs(),
-    delayed:       newDelayedJobs(),
+    name:      name,
+    ready:     newReadyJobs(),
+    reserved:  newReservedJobs(),
+    buried:    newBuriedJobs(),
+    delayed:   newDelayedJobs(),
     jobDemand: make(chan *jobReserveRequest),
     jobSupply: make(chan *Job),
   }
 
-  go func(){
+  go func() {
     for {
       if tube.ready.Len() > 0 {
         fmt.Println("> 0")
@@ -56,6 +56,7 @@ func newTube(name string) (tube *Tube) {
           case request.success <- tube.reserve():
             fmt.Println("job supplied")
           case <-request.cancel:
+            request.cancel <- true // propagate to the other tubes
             fmt.Println("job supply canceled")
           }
         }

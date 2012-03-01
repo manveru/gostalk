@@ -3,54 +3,54 @@ package gostalker
 import (
   "net"
   "os"
-  "time"
   "runtime/debug"
   "strings"
+  "time"
 )
 
 type Server struct {
-  logger   Logger
-  getJobId chan JobId
-  tubes    map[string]*Tube
-  pid int
-  startedAt time.Time
+  logger                 Logger
+  getJobId               chan JobId
+  tubes                  map[string]*Tube
+  pid                    int
+  startedAt              time.Time
   currentConnectionCount uint
-  totalConnectionCount uint
-  commandUsage map[string]uint
+  totalConnectionCount   uint
+  commandUsage           map[string]uint
 }
 
 func newServer(logger Logger) (server *Server) {
   server = &Server{
-    logger: logger,
+    logger:   logger,
     getJobId: make(chan JobId, 42),
-    tubes: make(map[string]*Tube),
+    tubes:    make(map[string]*Tube),
     currentConnectionCount: 0,
-    totalConnectionCount: 0,
-    pid: os.Getpid(),
-    startedAt: time.Now(),
+    totalConnectionCount:   0,
+    pid:                    os.Getpid(),
+    startedAt:              time.Now(),
     commandUsage: map[string]uint{
-      "bury": 0,
-      "delete": 0,
-      "ignore": 0,
-      "kick": 0,
-      "list-tubes": 0,
-      "list-tubes-watched": 0,
-      "list-tube-used": 0,
-      "pause-tube": 0,
-      "peek-buried": 0,
-      "peek": 0,
-      "peek-delayed": 0,
-      "peek-ready": 0,
-      "put": 0,
-      "quit": 0,
-      "reserve": 0,
+      "bury":                 0,
+      "delete":               0,
+      "ignore":               0,
+      "kick":                 0,
+      "list-tubes":           0,
+      "list-tubes-watched":   0,
+      "list-tube-used":       0,
+      "pause-tube":           0,
+      "peek-buried":          0,
+      "peek":                 0,
+      "peek-delayed":         0,
+      "peek-ready":           0,
+      "put":                  0,
+      "quit":                 0,
+      "reserve":              0,
       "reserve-with-timeout": 0,
-      "stats": 0,
-      "stats-job": 0,
-      "stats-tube": 0,
-      "touch": 0,
-      "use": 0,
-      "watch": 0,
+      "stats":                0,
+      "stats-job":            0,
+      "stats-tube":           0,
+      "touch":                0,
+      "use":                  0,
+      "watch":                0,
     },
   }
 
@@ -105,7 +105,6 @@ func (server *Server) acceptFinalize(conn net.Conn) {
   server.currentConnectionCount -= 1
 }
 
-
 func processCommand(server *Server, client *Client) (err error) {
   cmd, err := readCommand(client.reader)
 
@@ -114,7 +113,7 @@ func processCommand(server *Server, client *Client) (err error) {
     return
   }
 
-  defer func(){
+  defer func() {
     close(cmd.closeConn)
     close(cmd.respondChan)
   }()
@@ -135,8 +134,6 @@ func processCommand(server *Server, client *Client) (err error) {
     cmd.server.commandUsage[cmd.name] += 1
   case <-cmd.closeConn:
     return newError("Close Connection")
-  case <-time.After(5 * time.Second):
-    response = TIMED_OUT
   }
 
   server.log("response:", response)
@@ -155,7 +152,7 @@ func readCommand(reader Reader) (cmd *Cmd, err error) {
 
   cmd = &Cmd{
     respondChan: make(chan string),
-    closeConn: make(chan bool),
+    closeConn:   make(chan bool),
     name:        chunks[0],
     args:        chunks[1:],
   }
@@ -215,7 +212,7 @@ func executeCommand(cmd *Cmd, unknownCommandChan chan bool) {
 }
 
 func (server *Server) statJobs() (urgent, ready, reserved, delayed, buried int) {
-  for _, tube := range(server.tubes) {
+  for _, tube := range server.tubes {
     urgent += tube.statUrgent
     ready += tube.statReady
     reserved += tube.statReserved

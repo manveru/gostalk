@@ -12,7 +12,7 @@ var (
 )
 
 const (
-  GOSTALKER_VERSION             = "GoStalker 2012-02-28"
+  GOSTALKER_VERSION   = "GoStalker 2012-02-28"
   JOB_DATA_SIZE_LIMIT = (1 << 16) - 1
   FOUND               = "FOUND\r\n"
   NOTFOUND            = "NOT_FOUND\r\n"
@@ -43,7 +43,7 @@ func (e GostalkerError) Error() string {
   return e.msg
 }
 
-func newError(msg string) (*GostalkerError) {
+func newError(msg string) *GostalkerError {
   return &GostalkerError{msg: msg}
 }
 

@@ -3,10 +3,11 @@ package gostalker
 import (
   "fmt"
   "io"
-  "syscall"
-  "strconv"
-  "time"
   "launchpad.net/goyaml"
+  "runtime"
+  "strconv"
+  "syscall"
+  "time"
 )
 
 type Cmd struct {
@@ -15,7 +16,7 @@ type Cmd struct {
   name        string
   args        []string
   respondChan chan string
-  closeConn chan bool
+  closeConn   chan bool
 }
 
 func (cmd *Cmd) respond(res string) {
@@ -55,7 +56,7 @@ func (cmd *Cmd) listTubes() {
   cmd.assertNumberOfArguments(0)
 
   list := make([]string, 0)
-  for key, _ := range(cmd.server.tubes) {
+  for key := range cmd.server.tubes {
     list = append(list, key)
   }
 
@@ -71,7 +72,7 @@ func (cmd *Cmd) listTubesWatched() {
   cmd.assertNumberOfArguments(0)
 
   list := make([]string, 0)
-  for _, tube := range(cmd.client.watchedTubes) {
+  for _, tube := range cmd.client.watchedTubes {
     list = append(list, tube.name)
   }
 
@@ -200,24 +201,24 @@ func (cmd *Cmd) put() {
 
   id := <-cmd.server.getJobId
   job := &Job{
-    id: id,
+    id:       id,
     priority: priority,
-    created: time.Now(),
-    delay: time.Now().Add(time.Duration(delay) * time.Second),
-    ttr: time.Duration(ttr),
-    body: body,
+    created:  time.Now(),
+    delay:    time.Now().Add(time.Duration(delay) * time.Second),
+    ttr:      time.Duration(ttr),
+    body:     body,
   }
 
   cmd.server.logf("job: %v", job)
 
   tube := cmd.client.usedTube
-  tube.jobSupply <-job
+  tube.jobSupply <- job
   cmd.respond(fmt.Sprintf("INSERTED %d\r\n", job.id))
 }
 
 func (cmd *Cmd) quit() {
   cmd.assertNumberOfArguments(0)
-  cmd.closeConn <-true
+  cmd.closeConn <- true
 }
 
 func (cmd *Cmd) reserve() {
@@ -225,22 +226,17 @@ func (cmd *Cmd) reserve() {
 
   request := &jobReserveRequest{
     success: make(chan *Job),
-    cancel: make(chan bool),
+    cancel:  make(chan bool, 1),
   }
 
-  tubeCount := -1
-  for _, tube := range(cmd.client.watchedTubes) {
-    go func(){ tube.jobDemand <-request }()
-    tubeCount += 1
+  for _, tube := range cmd.client.watchedTubes {
+    go func() {
+      tube.jobDemand <- request
+    }()
   }
 
-  cmd.server.logf("tubeCount: %d", tubeCount)
   job := <-request.success
-  for i := 0; i < tubeCount; i++ {
-    cmd.server.logf("i: %d", i)
-    request.cancel <-true
-  }
-
+  request.cancel <- true
   cmd.respond(job.reservedString())
 }
 
@@ -248,15 +244,31 @@ func (cmd *Cmd) reserveWithTimeout() {
   cmd.assertNumberOfArguments(1) // seconds
   seconds := cmd.getInt(0)
   if seconds < 0 {
-    seconds = 0
+    seconds = 1
+  }
+  cmd.server.logf("old: %d", time.Duration(seconds)*time.Second)
+  timeout, _ := time.ParseDuration(fmt.Sprintf("%ds", seconds))
+  cmd.server.logf("seconds: %d, timeout: %d", seconds, timeout)
+
+  request := &jobReserveRequest{
+    success: make(chan *Job),
+    cancel:  make(chan bool, 1),
   }
 
-  expectJob := make(chan *Job)
+  for _, tube := range cmd.client.watchedTubes {
+    go func() {
+      tube.jobDemand <- request
+    }()
+  }
+
+  cmd.server.logf("commence select")
   select {
-  case job := <-expectJob:
+  case job := <-request.success:
     cmd.respond(job.reservedString())
-  case <-time.After(time.Duration(seconds) * time.Second):
-    cmd.respond("TIMED_OUT\r\n")
+    request.cancel <- true
+  case <-time.After(timeout):
+    cmd.respond(TIMED_OUT)
+    request.cancel <- true
   }
 }
 
@@ -266,22 +278,23 @@ func (cmd *Cmd) stats() {
   urgent, ready, reserved, delayed, buried := server.statJobs()
 
   raw := map[string]interface{}{
-    "version": GOSTALKER_VERSION,
-    "total-connections": server.totalConnectionCount,
-    "current-connections": server.currentConnectionCount,
-    "pid": server.pid,
-    "uptime": time.Since(cmd.server.startedAt).Seconds(),
-    "max-job-size":  JOB_DATA_SIZE_LIMIT,
-    "current-tubes": len(server.tubes),
-    "current-jobs-urgent": urgent,
-    "current-jobs-ready": ready,
+    "version":               GOSTALKER_VERSION,
+    "total-connections":     server.totalConnectionCount,
+    "current-connections":   server.currentConnectionCount,
+    "pid":                   server.pid,
+    "uptime":                time.Since(cmd.server.startedAt).Seconds(),
+    "max-job-size":          JOB_DATA_SIZE_LIMIT,
+    "current-tubes":         len(server.tubes),
+    "current-jobs-urgent":   urgent,
+    "current-jobs-ready":    ready,
     "current-jobs-reserved": reserved,
-    "current-jobs-delayed": delayed,
-    "current-jobs-buried": buried,
+    "current-jobs-delayed":  delayed,
+    "current-jobs-buried":   buried,
+    "go-current-goroutines": runtime.NumGoroutine(),
   }
 
-  for key, value := range(server.commandUsage) {
-    raw["cmd-" + key] = value
+  for key, value := range server.commandUsage {
+    raw["cmd-"+key] = value
   }
 
   usage := new(syscall.Rusage)
@@ -296,17 +309,17 @@ func (cmd *Cmd) stats() {
   }
 
   /*
-  TODO: those still need implementation
-  raw["job-timeouts"] = 1234 // is the cumulative count of times a job has timed out.
-  raw["total-jobs"] = 1234 // is the cumulative count of jobs created.
-  raw["current-producers"] = 1234 // is the number of open connections that have each
-  raw["current-workers"] = 1234 // is the number of open connections that have each issued
-  raw["current-waiting"] = 1234 // is the number of open connections that have issued a
-  raw["binlog-oldest-index"] = 1234 // is the index of the oldest binlog file needed to
-  raw["binlog-current-index"] = 1234 // is the index of the current binlog file being
-  raw["binlog-max-size"] = 1234 // is the maximum size in bytes a binlog file is allowed
-  raw["binlog-records-written"] = 1234 // is the cumulative number of records written
-  raw["binlog-records-migrated"] = 1234 // is the cumulative number of records written
+     TODO: those still need implementation
+     raw["job-timeouts"] = 1234 // is the cumulative count of times a job has timed out.
+     raw["total-jobs"] = 1234 // is the cumulative count of jobs created.
+     raw["current-producers"] = 1234 // is the number of open connections that have each
+     raw["current-workers"] = 1234 // is the number of open connections that have each issued
+     raw["current-waiting"] = 1234 // is the number of open connections that have issued a
+     raw["binlog-oldest-index"] = 1234 // is the index of the oldest binlog file needed to
+     raw["binlog-current-index"] = 1234 // is the index of the current binlog file being
+     raw["binlog-max-size"] = 1234 // is the maximum size in bytes a binlog file is allowed
+     raw["binlog-records-written"] = 1234 // is the cumulative number of records written
+     raw["binlog-records-migrated"] = 1234 // is the cumulative number of records written
   */
 
   yaml, err := goyaml.Marshal(raw)
