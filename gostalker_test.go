@@ -1,7 +1,10 @@
 package gostalker
 
 import (
+  "strings"
   "bufio"
+  "reflect"
+  "sort"
   "fmt"
   . "github.com/manveru/gobdd"
   "launchpad.net/goyaml"
@@ -30,6 +33,24 @@ func readResponseWithBody(reader Reader, body interface{}) {
   Expect(err, ToBeNil)
 }
 
+func readReserveResponse(reader Reader) (jobId int64, body string) {
+  line := readLine(reader)
+  lineParts := strings.Split(string(line), " ")
+  Expect(lineParts[0], ToEqual, "RESERVED")
+
+  jobId, err := strconv.ParseInt(lineParts[1], 10, 64)
+  Expect(err, ToBeNil)
+
+  bodyLen, err := strconv.ParseInt(lineParts[2], 10, 64)
+  Expect(err, ToBeNil)
+
+  jobBody := make([]byte, bodyLen+2)
+  n, err := reader.Read(jobBody)
+  Expect(err, ToBeNil)
+  Expect(int64(n), ToEqual, bodyLen+2)
+  return jobId, string(jobBody[:bodyLen])
+}
+
 func readResponseWithoutBody(reader Reader) (line string) {
   return string(readLine(reader))
 }
@@ -42,6 +63,17 @@ func readLine(reader Reader) []byte {
 }
 
 func TestEverything(t *testing.T) {}
+
+// sort both actual and expected and compare them with reflect.DeepEqual.
+func WhenSortedToEqual(actual, expected []string) (string, bool) {
+  sort.Strings(actual)
+  sort.Strings(expected)
+
+  if reflect.DeepEqual(actual, expected) {
+    return "", true
+  }
+  return fmt.Sprintf("    expected: %#v\nto deeply be: %#v\n", expected, actual), false
+}
 
 func init() {
   defer PrintSpecReport()
@@ -87,14 +119,52 @@ func init() {
     })
 
     It("handles watch <tube>", func() {
-      sendCommand(conn, "watch foo")
+      sendCommand(conn, "watch test-tube")
       res := readResponseWithoutBody(reader)
-      Expect(res, ToDeepEqual, "OK")
+      Expect(res, ToEqual, "OK")
 
       var tubes []string
       sendCommand(conn, "list-tubes-watched")
       readResponseWithBody(reader, &tubes)
-      Expect(tubes, ToDeepEqual, []string{"default", "foo"})
+      Expect(tubes, WhenSortedToEqual, []string{"test-tube", "default"})
+    })
+
+    It("handles ignore <tube>", func() {
+      sendCommand(conn, "ignore test-tube")
+      res := readResponseWithoutBody(reader)
+      Expect(res, ToEqual, "OK")
+
+      var tubes []string
+      sendCommand(conn, "list-tubes-watched")
+      readResponseWithBody(reader, &tubes)
+      Expect(tubes, ToDeepEqual, []string{"default"})
+    })
+
+    It("handles use <tube>", func() {
+      sendCommand(conn, "use test-tube")
+      res := readResponseWithoutBody(reader)
+      Expect(res, ToEqual, "USING test-tube")
+
+      sendCommand(conn, "list-tube-used")
+      res = readResponseWithoutBody(reader)
+      Expect(res, ToDeepEqual, "USING test-tube")
+    })
+
+    It("handles put <pri> <delay> <ttr> <bytes>", func() {
+      sendCommand(conn, "put 0 0 0 2\r\nhi")
+      res := readResponseWithoutBody(reader)
+      Expect(res, ToEqual, "INSERTED 0")
+    })
+
+    It("handles reserve", func() {
+      sendCommand(conn, "watch test-tube")
+      res := readResponseWithoutBody(reader)
+      Expect(res, ToEqual, "OK")
+
+      sendCommand(conn, "reserve")
+      id, body := readReserveResponse(reader)
+      Expect(id, ToEqual, int64(0))
+      Expect(body, ToEqual, "hi")
     })
   })
 }

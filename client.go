@@ -11,19 +11,34 @@ type Conn interface {
 }
 
 type Client struct {
+  server *Server
   conn         Conn
   reader       Reader
   usedTube     *Tube
-  watchedTubes []*Tube
+  watchedTubes map[string]*Tube
 }
 
-func newClient(conn Conn, tube *Tube) (client *Client) {
+func newClient(server *Server, conn Conn) (client *Client) {
   client = &Client{
+    server: server,
     conn:         conn,
     reader:       bufio.NewReader(conn),
-    usedTube:     tube,
-    watchedTubes: []*Tube{tube},
+    watchedTubes: map[string]*Tube{},
   }
 
+  client.useTube("default")
+  client.watchTube("default")
   return
+}
+
+func (client *Client) useTube(name string) {
+  client.usedTube = client.server.findOrCreateTube(name)
+}
+
+func (client *Client) watchTube(name string) {
+  client.watchedTubes[name] = client.server.findOrCreateTube(name)
+}
+
+func (client *Client) ignoreTube(name string) {
+  delete(client.watchedTubes, name)
 }

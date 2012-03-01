@@ -80,7 +80,7 @@ func (server *Server) accept(conn Conn) {
   server.totalConnectionCount += 1
   server.currentConnectionCount += 1
 
-  client := newClient(conn, server.findOrCreateTube("default"))
+  client := newClient(server, conn)
 
   for {
     err := processCommand(server, client)
@@ -117,7 +117,7 @@ func processCommand(server *Server, client *Client) (err error) {
 
   cmd.server = server
   cmd.client = client
-  pf("cmd: %#v(%#v)", cmd.name, cmd.args)
+  pf("cmd.%s(%#v)", cmd.name, cmd.args)
 
   unknownCommandChan := make(chan bool)
   go executeCommand(cmd, unknownCommandChan)
@@ -133,7 +133,7 @@ func processCommand(server *Server, client *Client) (err error) {
     return newError("Close Connection")
   }
 
-  p("response:", response)
+  pf("response: %#v", response)
   client.conn.Write([]byte(response))
   return
 }

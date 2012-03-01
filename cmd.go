@@ -56,7 +56,15 @@ func (cmd *Cmd) delete() {
   cmd.respond(INTERNAL_ERROR)
 }
 func (cmd *Cmd) ignore() {
-  cmd.respond(INTERNAL_ERROR)
+  cmd.assertNumberOfArguments(1)
+
+  name := cmd.args[0]
+  if !NAME_CHARS.MatchString(name) {
+    cmd.respond(BAD_FORMAT)
+  }
+
+  cmd.client.ignoreTube(name)
+  cmd.respond("OK\r\n")
 }
 func (cmd *Cmd) kick() {
   cmd.respond(INTERNAL_ERROR)
@@ -355,6 +363,6 @@ func (cmd *Cmd) watch() {
     cmd.respond(BAD_FORMAT)
   }
 
-  cmd.client.watchedTubes = append(cmd.client.watchedTubes, cmd.server.findOrCreateTube(name))
+  cmd.client.watchTube(name)
   cmd.respond("OK\r\n")
 }
