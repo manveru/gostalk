@@ -229,20 +229,29 @@ func (cmd *Cmd) quit() {
   cmd.closeConn <- true
 }
 
-func (cmd *Cmd) reserve() {
-  cmd.assertNumberOfArguments(0)
-
+func reserveCommon(tubes map[string]*Tube) *jobReserveRequest {
   request := &jobReserveRequest{
     success: make(chan *Job),
     cancel:  make(chan bool, 1),
   }
 
-  for _, tube := range cmd.client.watchedTubes {
-    go func(tube *Tube) {
-      tube.jobDemand <- request
-    }(tube)
+  for _, tube := range tubes {
+    go func(t *Tube, r *jobReserveRequest) {
+      select {
+      case t.jobDemand <- r:
+      case <-r.cancel:
+        r.cancel <- true
+      }
+    }(tube, request)
   }
 
+  return request
+}
+
+func (cmd *Cmd) reserve() {
+  cmd.assertNumberOfArguments(0)
+
+  request := reserveCommon(cmd.client.watchedTubes)
   job := <-request.success
   request.cancel <- true
   cmd.respond(job.reservedString())
@@ -255,16 +264,7 @@ func (cmd *Cmd) reserveWithTimeout() {
     seconds = 0
   }
 
-  request := &jobReserveRequest{
-    success: make(chan *Job),
-    cancel:  make(chan bool, 1),
-  }
-
-  for _, tube := range cmd.client.watchedTubes {
-    go func(tube *Tube) {
-      tube.jobDemand <- request
-    }(tube)
-  }
+  request := reserveCommon(cmd.client.watchedTubes)
 
   select {
   case job := <-request.success:

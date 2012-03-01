@@ -42,26 +42,28 @@ func newTube(name string) (tube *Tube) {
     jobSupply: make(chan *Job),
   }
 
-  go func() {
-    for {
-      if tube.ready.Len() > 0 {
-        select {
-        case job := <-tube.jobSupply:
-          tube.put(job)
-        case request := <-tube.jobDemand:
-          select {
-          case request.success <- tube.reserve():
-          case <-request.cancel:
-            request.cancel <- true // propagate to the other tubes
-          }
-        }
-      } else {
-        tube.put(<-tube.jobSupply)
-      }
-    }
-  }()
+  go tube.handleDemand()
 
   return
+}
+
+func (tube *Tube) handleDemand() {
+  for {
+    if tube.ready.Len() > 0 {
+      select {
+      case job := <-tube.jobSupply:
+        tube.put(job)
+      case request := <-tube.jobDemand:
+        select {
+        case request.success <- tube.reserve():
+        case <-request.cancel:
+          request.cancel <- true // propagate to the other tubes
+        }
+      }
+    } else {
+      tube.put(<-tube.jobSupply)
+    }
+  }
 }
 
 func (tube *Tube) reserve() (job *Job) {

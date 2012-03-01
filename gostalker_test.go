@@ -1,18 +1,23 @@
 package gostalker
 
 import (
-  "strings"
   "bufio"
-  "reflect"
-  "sort"
   "fmt"
   . "github.com/manveru/gobdd"
   "launchpad.net/goyaml"
   "net"
+  "reflect"
+  "sort"
   "strconv"
+  "strings"
   "testing"
   "time"
 )
+
+type jobResponse struct {
+  id   JobId
+  body string
+}
 
 func sendCommand(conn Conn, raw string) {
   n, err := fmt.Fprintf(conn, raw+"\r\n")
@@ -33,7 +38,7 @@ func readResponseWithBody(reader Reader, body interface{}) {
   Expect(err, ToBeNil)
 }
 
-func readReserveResponse(reader Reader) (jobId int64, body string) {
+func readReserveResponse(reader Reader) jobResponse {
   line := readLine(reader)
   lineParts := strings.Split(string(line), " ")
   Expect(lineParts[0], ToEqual, "RESERVED")
@@ -48,7 +53,7 @@ func readReserveResponse(reader Reader) (jobId int64, body string) {
   n, err := reader.Read(jobBody)
   Expect(err, ToBeNil)
   Expect(int64(n), ToEqual, bodyLen+2)
-  return jobId, string(jobBody[:bodyLen])
+  return jobResponse{JobId(jobId), string(jobBody[:bodyLen])}
 }
 
 func readResponseWithoutBody(reader Reader) (line string) {
@@ -162,9 +167,45 @@ func init() {
       Expect(res, ToEqual, "OK")
 
       sendCommand(conn, "reserve")
-      id, body := readReserveResponse(reader)
-      Expect(id, ToEqual, int64(0))
-      Expect(body, ToEqual, "hi")
+      Expect(readReserveResponse(reader), ToDeepEqual, jobResponse{0, "hi"})
+    })
+
+    It("times out on  reserve-with-timeout <seconds>", func() {
+      ok := make(chan string)
+
+      go func() {
+        sendCommand(conn, "reserve-with-timeout 1")
+        ok <- readResponseWithoutBody(reader)
+      }()
+
+      select {
+      case <-time.After(2 * time.Second):
+        panic("too late")
+      case res := <-ok:
+        Expect(res, ToEqual, "TIMED_OUT")
+      }
+    })
+
+    It("reserves on reserve-with-timeout <seconds>", func() {
+      ok := make(chan jobResponse)
+
+      go func() {
+        sendCommand(conn, "reserve-with-timeout 2")
+        ok <- readReserveResponse(reader)
+      }()
+
+      go func() {
+        altConn, err := net.DialTimeout("tcp", "127.0.0.1:40401", 1*time.Second)
+        Expect(err, ToBeNil)
+        sendCommand(altConn, "use test-tube\r\nput 0 0 0 3\r\nlol\r\nquit")
+      }()
+
+      select {
+      case <-time.After(3 * time.Second):
+        panic("too late")
+      case res := <-ok:
+        Expect(res, ToEqual, jobResponse{1, "lol"})
+      }
     })
   })
 }

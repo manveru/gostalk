@@ -11,7 +11,7 @@ type Conn interface {
 }
 
 type Client struct {
-  server *Server
+  server       *Server
   conn         Conn
   reader       Reader
   usedTube     *Tube
@@ -20,7 +20,7 @@ type Client struct {
 
 func newClient(server *Server, conn Conn) (client *Client) {
   client = &Client{
-    server: server,
+    server:       server,
     conn:         conn,
     reader:       bufio.NewReader(conn),
     watchedTubes: map[string]*Tube{},
