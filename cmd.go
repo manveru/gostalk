@@ -19,13 +19,22 @@ type Cmd struct {
   closeConn   chan bool
 }
 
+func newCmd(name string, args []string) *Cmd {
+  return &Cmd{
+    respondChan: make(chan string),
+    closeConn:   make(chan bool),
+    name:        name,
+    args:        args,
+  }
+}
+
 func (cmd *Cmd) respond(res string) {
   cmd.respondChan <- res
 }
 
 func (cmd *Cmd) assertNumberOfArguments(n int) {
   if len(cmd.args) != n {
-    cmd.server.logf("Wrong number of arguments: expected %d, got %d", n, len(cmd.args))
+    pf("Wrong number of arguments: expected %d, got %d", n, len(cmd.args))
     cmd.respond(BAD_FORMAT)
   }
 }
@@ -34,7 +43,7 @@ func (cmd *Cmd) getInt(idx int) (to uint64) {
   from := cmd.args[idx]
   to, err := strconv.ParseUint(from, 10, 64)
   if err != nil {
-    cmd.server.logf("cmd.getInt(%#v) : %v", from, err)
+    pf("cmd.getInt(%#v) : %v", from, err)
     cmd.respond(BAD_FORMAT)
   }
   return
@@ -62,11 +71,11 @@ func (cmd *Cmd) listTubes() {
 
   yaml, err := goyaml.Marshal(list)
   if err != nil {
-    cmd.server.logf("goyaml.Marshal : %#v", err)
+    pf("goyaml.Marshal : %#v", err)
     cmd.respond(INTERNAL_ERROR)
   }
 
-  cmd.respond(string(yaml))
+  cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
 }
 func (cmd *Cmd) listTubesWatched() {
   cmd.assertNumberOfArguments(0)
@@ -78,11 +87,11 @@ func (cmd *Cmd) listTubesWatched() {
 
   yaml, err := goyaml.Marshal(list)
   if err != nil {
-    cmd.server.logf("goyaml.Marshal : %#v", err)
+    pf("goyaml.Marshal : %#v", err)
     cmd.respond(INTERNAL_ERROR)
   }
 
-  cmd.respond(string(yaml))
+  cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
 }
 func (cmd *Cmd) listTubeUsed() {
   cmd.assertNumberOfArguments(0)
@@ -181,7 +190,7 @@ func (cmd *Cmd) put() {
   body := make([]byte, bodySize)
   _, err := io.ReadFull(cmd.client.reader, body)
   if err != nil {
-    cmd.server.logf("io.ReadFull : %#v", err)
+    pf("io.ReadFull : %#v", err)
     cmd.respond(INTERNAL_ERROR)
   }
   rn := make([]byte, 2)
@@ -190,7 +199,7 @@ func (cmd *Cmd) put() {
     if err.Error() == "ErrUnexpextedEOF" {
       cmd.respond(EXPECTED_CRLF)
     } else {
-      cmd.server.logf("io.ReadAtLeast : %#v", err)
+      pf("io.ReadAtLeast : %#v", err)
       cmd.respond(INTERNAL_ERROR)
     }
   }
@@ -200,16 +209,7 @@ func (cmd *Cmd) put() {
   }
 
   id := <-cmd.server.getJobId
-  job := &Job{
-    id:       id,
-    priority: priority,
-    created:  time.Now(),
-    delay:    time.Now().Add(time.Duration(delay) * time.Second),
-    ttr:      time.Duration(ttr),
-    body:     body,
-  }
-
-  cmd.server.logf("job: %v", job)
+  job := newJob(id, priority, delay, ttr, body)
 
   tube := cmd.client.usedTube
   tube.jobSupply <- job
@@ -258,12 +258,11 @@ func (cmd *Cmd) reserveWithTimeout() {
     }()
   }
 
-  cmd.server.logf("commence select")
   select {
   case job := <-request.success:
     cmd.respond(job.reservedString())
     request.cancel <- true
-  case <-time.After(time.duration(seconds) * time.Second):
+  case <-time.After(time.Duration(seconds) * time.Second):
     cmd.respond(TIMED_OUT)
     request.cancel <- true
   }
@@ -302,7 +301,7 @@ func (cmd *Cmd) stats() {
     raw["rusage-utime"] = float32(utimeSec) + (float32(utimeNsec) / 10000000.0)
     raw["rusage-stime"] = float32(stimeSec) + (float32(stimeNsec) / 10000000.0)
   } else {
-    server.logf("failed to get rusage : %v", err)
+    pf("failed to get rusage : %v", err)
   }
 
   /*
@@ -321,7 +320,7 @@ func (cmd *Cmd) stats() {
 
   yaml, err := goyaml.Marshal(raw)
   if err != nil {
-    server.logf("goyaml.Marshal : %#v", err)
+    pf("goyaml.Marshal : %#v", err)
     cmd.respond(INTERNAL_ERROR)
   }
   cmd.respond(string(yaml))
@@ -349,5 +348,13 @@ func (cmd *Cmd) use() {
 }
 
 func (cmd *Cmd) watch() {
-  cmd.respond(INTERNAL_ERROR)
+  cmd.assertNumberOfArguments(1)
+
+  name := cmd.args[0]
+  if !NAME_CHARS.MatchString(name) {
+    cmd.respond(BAD_FORMAT)
+  }
+
+  cmd.client.watchedTubes = append(cmd.client.watchedTubes, cmd.server.findOrCreateTube(name))
+  cmd.respond("OK\r\n")
 }

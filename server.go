@@ -1,7 +1,6 @@
 package gostalker
 
 import (
-  "net"
   "os"
   "runtime/debug"
   "strings"
@@ -9,7 +8,6 @@ import (
 )
 
 type Server struct {
-  logger                 Logger
   getJobId               chan JobId
   tubes                  map[string]*Tube
   pid                    int
@@ -19,9 +17,8 @@ type Server struct {
   commandUsage           map[string]uint
 }
 
-func newServer(logger Logger) (server *Server) {
+func newServer() (server *Server) {
   server = &Server{
-    logger:   logger,
     getJobId: make(chan JobId, 42),
     tubes:    make(map[string]*Tube),
     currentConnectionCount: 0,
@@ -78,7 +75,7 @@ func (server *Server) findOrCreateTube(name string) *Tube {
   return found
 }
 
-func (server *Server) accept(conn net.Conn) {
+func (server *Server) accept(conn Conn) {
   defer server.acceptFinalize(conn)
   server.totalConnectionCount += 1
   server.currentConnectionCount += 1
@@ -88,19 +85,19 @@ func (server *Server) accept(conn net.Conn) {
   for {
     err := processCommand(server, client)
     if err != nil {
-      server.logf("Error in processCommand: %#v", err)
+      pf("Error in processCommand: %#v", err)
       return
     }
   }
 }
 
-func (server *Server) acceptFinalize(conn net.Conn) {
+func (server *Server) acceptFinalize(conn Conn) {
   if x := recover(); x != nil {
-    server.log("runtime panic: %v\n", x)
+    pf("runtime panic: %v\n", x)
     debug.PrintStack()
   }
 
-  server.logf("Closing Connection: %#v", conn)
+  pf("Closing Connection: %#v", conn)
   conn.Close()
   server.currentConnectionCount -= 1
 }
@@ -109,7 +106,7 @@ func processCommand(server *Server, client *Client) (err error) {
   cmd, err := readCommand(client.reader)
 
   if err != nil {
-    server.log("readCommand", err)
+    p("readCommand", err)
     return
   }
 
@@ -120,7 +117,7 @@ func processCommand(server *Server, client *Client) (err error) {
 
   cmd.server = server
   cmd.client = client
-  server.logf("cmd: %#v(%#v)", cmd.name, cmd.args)
+  pf("cmd: %#v(%#v)", cmd.name, cmd.args)
 
   unknownCommandChan := make(chan bool)
   go executeCommand(cmd, unknownCommandChan)
@@ -136,25 +133,16 @@ func processCommand(server *Server, client *Client) (err error) {
     return newError("Close Connection")
   }
 
-  server.log("response:", response)
+  p("response:", response)
   client.conn.Write([]byte(response))
   return
 }
 
 func readCommand(reader Reader) (cmd *Cmd, err error) {
-  bline, _, err := reader.ReadLine()
-  if err != nil {
-    return
-  }
-
-  sline := string(bline)
-  chunks := strings.Fields(sline)
-
-  cmd = &Cmd{
-    respondChan: make(chan string),
-    closeConn:   make(chan bool),
-    name:        chunks[0],
-    args:        chunks[1:],
+  line, _, err := reader.ReadLine()
+  if err == nil {
+    chunks := strings.Fields(string(line))
+    cmd = newCmd(chunks[0], chunks[1:])
   }
 
   return
@@ -223,21 +211,13 @@ func (server *Server) statJobs() (urgent, ready, reserved, delayed, buried int) 
   return
 }
 
-func (server *Server) log(v ...interface{}) {
-  server.logger.Println(v...)
-}
-
-func (server *Server) logf(format string, v ...interface{}) {
-  server.logger.Printf(format, v...)
-}
-
 func (server *Server) exit(status int) {
   os.Exit(status)
 }
 
 func (server *Server) exitOn(name string, err error) {
   if err != nil {
-    server.logf("Exit in %s: %v", name, err)
+    pf("Exit in %s: %v", name, err)
     server.exit(1)
   }
 }

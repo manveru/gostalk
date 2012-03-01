@@ -2,17 +2,22 @@ package gostalker
 
 import (
   "bufio"
-  "net"
 )
 
+type Conn interface {
+  Close() error
+  Read([]byte) (int, error)
+  Write([]byte) (int, error)
+}
+
 type Client struct {
-  conn         net.Conn
+  conn         Conn
   reader       Reader
   usedTube     *Tube
   watchedTubes []*Tube
 }
 
-func newClient(conn net.Conn, tube *Tube) (client *Client) {
+func newClient(conn Conn, tube *Tube) (client *Client) {
   client = &Client{
     conn:         conn,
     reader:       bufio.NewReader(conn),

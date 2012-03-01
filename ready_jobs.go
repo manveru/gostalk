@@ -2,7 +2,6 @@ package gostalker
 
 import (
   "container/heap"
-  "fmt"
 )
 
 type readyJobs []*Job
@@ -31,6 +30,13 @@ func (jobs *readyJobs) Push(job interface{}) {
 }
 
 func (jobs *readyJobs) Swap(a, b int) {
-  fmt.Println("readyJobs.Swap(", a, ",", b, ")")
   (*jobs)[a], (*jobs)[b] = (*jobs)[b], (*jobs)[a]
+}
+
+func (jobs *readyJobs) getJob() *Job {
+  return heap.Pop(jobs).(*Job)
+}
+
+func (jobs *readyJobs) putJob(job *Job) {
+  heap.Push(jobs, job)
 }

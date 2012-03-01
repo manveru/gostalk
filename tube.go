@@ -7,7 +7,6 @@ dsal | At any point there's either:  no jobs and no workers, no jobs and some wo
 
 import (
   "container/heap"
-  "fmt"
 )
 
 type jobReserveRequest struct {
@@ -46,25 +45,18 @@ func newTube(name string) (tube *Tube) {
   go func() {
     for {
       if tube.ready.Len() > 0 {
-        fmt.Println("> 0")
         select {
         case job := <-tube.jobSupply:
           tube.put(job)
         case request := <-tube.jobDemand:
-          fmt.Println("job demanded")
           select {
           case request.success <- tube.reserve():
-            fmt.Println("job supplied")
           case <-request.cancel:
             request.cancel <- true // propagate to the other tubes
-            fmt.Println("job supply canceled")
           }
         }
       } else {
-        select {
-        case job := <-tube.jobSupply:
-          tube.put(job)
-        }
+        tube.put(<-tube.jobSupply)
       }
     }
   }()
@@ -81,7 +73,6 @@ func (tube *Tube) reserve() (job *Job) {
 }
 
 func (tube *Tube) put(job *Job) {
-  fmt.Println("push job", job)
   heap.Push(tube.ready, job)
   tube.statReady = tube.ready.Len()
   if job.priority < 1024 {

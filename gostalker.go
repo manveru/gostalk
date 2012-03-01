@@ -1,7 +1,7 @@
 package gostalker
 
 import (
-  "log"
+  logging "log"
   "net"
   "os"
   "regexp"
@@ -9,6 +9,7 @@ import (
 
 var (
   NAME_CHARS = regexp.MustCompile("\\A[A-Za-z0-9()_$.;/+][A-Za-z0-9()_$.;/+-]{0,200}\\z")
+  log        = logging.New(os.Stdout, "stalk: ", logging.LstdFlags)
 )
 
 const (
@@ -35,6 +36,14 @@ const (
   JOB_TOO_BIG         = "JOB_TOO_BIG\r\n"
 )
 
+func p(v ...interface{}) {
+  log.Println(v...)
+}
+
+func pf(format string, v ...interface{}) {
+  log.Printf(format, v...)
+}
+
 type GostalkerError struct {
   msg string
 }
@@ -57,25 +66,30 @@ type Reader interface {
   Read([]byte) (int, error)
 }
 
-func Start() {
-  logger := log.New(os.Stdout, "server: ", log.LstdFlags)
-  server := newServer(logger)
+func Start(hostAndPort string, running chan bool) {
+  server := newServer()
 
-  addr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:40400")
-  server.exitOn("net.ResolveTCPAddr", err)
+  addr, err := net.ResolveTCPAddr("tcp", hostAndPort)
+  if err != nil {
+    log.Fatalln("net.ResolveTCPAddr", err)
+  }
 
   listener, err := net.ListenTCP("tcp", addr)
-  server.exitOn("net.ListenTCP", err)
+  if err != nil {
+    log.Fatalln("net.ListenTCP", err)
+  }
+
+  running <- true
 
   for {
     conn, err := listener.AcceptTCP()
     if err != nil {
-      server.log("listener.AcceptTCP", err)
+      p("listener.AcceptTCP", err)
     } else {
-      server.log("Accepted Connection:", conn)
+      p("Accepted Connection:", conn)
       err = conn.SetKeepAlive(true)
       if err != nil {
-        server.log("conn.SetKeepAlive", err)
+        p("conn.SetKeepAlive", err)
       } else {
         go server.accept(conn)
       }

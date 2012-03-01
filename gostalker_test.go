@@ -1,5 +1,100 @@
 package gostalker
 
 import (
+  "bufio"
+  "fmt"
+  . "github.com/manveru/gobdd"
+  "launchpad.net/goyaml"
+  "net"
+  "strconv"
   "testing"
+  "time"
 )
+
+func sendCommand(conn Conn, raw string) {
+  n, err := fmt.Fprintf(conn, raw+"\r\n")
+  Expect(err, ToBeNil)
+  Expect(n, ToEqual, len(raw)+2)
+}
+
+func readResponseWithBody(reader Reader, body interface{}) {
+  line := readLine(reader)
+  bodyLen, err := strconv.ParseInt(string(line[3:]), 10, 64)
+  Expect(err, ToBeNil)
+
+  rawYaml := make([]byte, bodyLen+2)
+  n, err := reader.Read(rawYaml)
+  Expect(err, ToBeNil)
+  Expect(int64(n), ToEqual, bodyLen+2)
+  err = goyaml.Unmarshal(rawYaml[:len(rawYaml)-1], body)
+  Expect(err, ToBeNil)
+}
+
+func readResponseWithoutBody(reader Reader) (line string) {
+  return string(readLine(reader))
+}
+
+func readLine(reader Reader) []byte {
+  line, isPrefix, err := reader.ReadLine()
+  Expect(err, ToBeNil)
+  Expect(isPrefix, ToEqual, false)
+  return line
+}
+
+func TestEverything(t *testing.T) {}
+
+func init() {
+  defer PrintSpecReport()
+
+  Describe("readyJobs", func() {
+    jobs := newReadyJobs()
+    job := newJob(1, 1, 1, 1, []byte("foobar"))
+
+    It("stores jobs", func() {
+      jobs.putJob(job)
+      Expect(jobs.Len(), ToEqual, 1)
+    })
+
+    It("retrieves jobs", func() {
+      Expect(jobs.getJob(), ToEqual, job)
+    })
+
+    It("panics when no jobs are available", func() {
+      Expect(func() { jobs.getJob() }, ToPanicWith, "runtime error: index out of range")
+    })
+  })
+
+  Describe("protocol", func() {
+    running := make(chan bool)
+    go Start("127.0.0.1:40401", running)
+    <-running
+    conn, err := net.DialTimeout("tcp", "127.0.0.1:40401", 1*time.Second)
+    Expect(err, ToBeNil)
+    reader := bufio.NewReader(conn)
+
+    It("handles list-tube-used", func() {
+      var tubes []string
+      sendCommand(conn, "list-tubes")
+      readResponseWithBody(reader, &tubes)
+      Expect(tubes, ToDeepEqual, []string{"default"})
+    })
+
+    It("accepts a list-tubes-watched command", func() {
+      var tubes []string
+      sendCommand(conn, "list-tubes-watched")
+      readResponseWithBody(reader, &tubes)
+      Expect(tubes, ToDeepEqual, []string{"default"})
+    })
+
+    It("handles watch <tube>", func() {
+      sendCommand(conn, "watch foo")
+      res := readResponseWithoutBody(reader)
+      Expect(res, ToDeepEqual, "OK")
+
+      var tubes []string
+      sendCommand(conn, "list-tubes-watched")
+      readResponseWithBody(reader, &tubes)
+      Expect(tubes, ToDeepEqual, []string{"default", "foo"})
+    })
+  })
+}
