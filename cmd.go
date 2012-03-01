@@ -230,9 +230,9 @@ func (cmd *Cmd) reserve() {
   }
 
   for _, tube := range cmd.client.watchedTubes {
-    go func() {
+    go func(tube *Tube) {
       tube.jobDemand <- request
-    }()
+    }(tube)
   }
 
   job := <-request.success
@@ -253,9 +253,9 @@ func (cmd *Cmd) reserveWithTimeout() {
   }
 
   for _, tube := range cmd.client.watchedTubes {
-    go func() {
+    go func(tube *Tube) {
       tube.jobDemand <- request
-    }()
+    }(tube)
   }
 
   select {
