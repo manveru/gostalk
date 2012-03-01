@@ -244,11 +244,8 @@ func (cmd *Cmd) reserveWithTimeout() {
   cmd.assertNumberOfArguments(1) // seconds
   seconds := cmd.getInt(0)
   if seconds < 0 {
-    seconds = 1
+    seconds = 0
   }
-  cmd.server.logf("old: %d", time.Duration(seconds)*time.Second)
-  timeout, _ := time.ParseDuration(fmt.Sprintf("%ds", seconds))
-  cmd.server.logf("seconds: %d, timeout: %d", seconds, timeout)
 
   request := &jobReserveRequest{
     success: make(chan *Job),
@@ -266,7 +263,7 @@ func (cmd *Cmd) reserveWithTimeout() {
   case job := <-request.success:
     cmd.respond(job.reservedString())
     request.cancel <- true
-  case <-time.After(timeout):
+  case <-time.After(time.duration(seconds) * time.Second):
     cmd.respond(TIMED_OUT)
     request.cancel <- true
   }
