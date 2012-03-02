@@ -29,6 +29,7 @@ type Instance interface {
   Watch(tubeName string) error
   ListTubes() ([]string, error)
   ListTubeUsed() (string, error)
+  ListTubesWatched() ([]string, error)
 }
 
 type instance struct {
@@ -89,7 +90,13 @@ func (i *instance) ListTubes() (tubes []string, err error) {
   line, err := i.readLine()
   if err != nil { return }
 
-  bodyLen, err := strconv.ParseInt(string(line[3:]), 10, 64)
+  words := strings.Split(line, " ")
+
+  if words[0] != "OK" {
+    return nil, bufferError{words[0]}
+  }
+
+  bodyLen, err := strconv.ParseInt(words[1], 10, 64)
   if err != nil { return }
 
   rawYaml := make([]byte, bodyLen+2)
@@ -121,6 +128,36 @@ func (i *instance) ListTubeUsed() (tubeName string, err error) {
   }
 
   return
+}
+
+func (i *instance) ListTubesWatched() (tubeNames []string, err error) {
+  log.Println("ListTubesWatched")
+
+  err = i.writeLine("list-tubes-watched")
+  if err != nil { return }
+  
+  line, err := i.readLine()
+  if err != nil { return }
+
+  words := strings.Split(line, " ")
+
+  if words[0] != "OK" {
+    return nil, bufferError{words[0]}
+  }
+
+  bodyLen, err := strconv.ParseInt(words[1], 10, 64)
+  if err != nil { return }
+
+  rawYaml := make([]byte, bodyLen+2)
+  n, err := i.readWriter.Read(rawYaml)
+  if err != nil { return }
+  if n != len(rawYaml) {
+    err = bufferError{fmt.Sprintf("read only %d bytes of %d", n, len(rawYaml))}
+  }
+
+  dest := make([]string, 0)
+  err = goyaml.Unmarshal(rawYaml[:len(rawYaml)-1], &dest)
+  return dest, err
 }
 
 func (i *instance) writeLine(line string) (err error) {

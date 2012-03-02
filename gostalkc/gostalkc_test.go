@@ -3,6 +3,9 @@ package gostalkc
 import (
   . "github.com/manveru/gobdd"
   "gostalk"
+  "reflect"
+  "fmt"
+  "sort"
   "testing"
   "time"
 )
@@ -27,7 +30,7 @@ func init() {
     Describe("ListTubes", func() {
       tubes, err := i.ListTubes()
       Expect(err, ToBeNil)
-      Expect(tubes, ToDeepEqual, []string{"default", "testing"})
+      Expect(tubes, WhenSortedToEqual, []string{"default", "testing"})
     })
 
     Describe("ListTubeUsed", func() {
@@ -35,5 +38,22 @@ func init() {
       Expect(err, ToBeNil)
       Expect(tube, ToDeepEqual, "default")
     })
+
+    Describe("ListTubesWatched", func() {
+      tubes, err := i.ListTubesWatched()
+      Expect(err, ToBeNil)
+      Expect(tubes, WhenSortedToEqual, []string{"default", "testing"})
+    })
   })
+}
+
+// sort both actual and expected and compare them with reflect.DeepEqual.
+func WhenSortedToEqual(actual, expected []string) (string, bool) {
+  sort.Strings(actual)
+  sort.Strings(expected)
+
+  if reflect.DeepEqual(actual, expected) {
+    return "", true
+  }
+  return fmt.Sprintf("    expected: %#v\nto deeply be: %#v\n", expected, actual), false
 }
