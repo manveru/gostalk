@@ -1,4 +1,4 @@
-package gostalker
+package gostalk
 
 import (
   logging "log"
@@ -13,7 +13,7 @@ var (
 )
 
 const (
-  GOSTALKER_VERSION   = "GoStalker 2012-02-28"
+  GOSTALK_VERSION   = "gostalk 2012-02-28"
   JOB_DATA_SIZE_LIMIT = (1 << 16) - 1
   FOUND               = "FOUND\r\n"
   NOTFOUND            = "NOT_FOUND\r\n"
@@ -44,16 +44,16 @@ func pf(format string, v ...interface{}) {
   log.Printf(format, v...)
 }
 
-type GostalkerError struct {
+type GostalkError struct {
   msg string
 }
 
-func (e GostalkerError) Error() string {
+func (e GostalkError) Error() string {
   return e.msg
 }
 
-func newError(msg string) *GostalkerError {
-  return &GostalkerError{msg: msg}
+func newError(msg string) *GostalkError {
+  return &GostalkError{msg: msg}
 }
 
 type Logger interface {

@@ -1,4 +1,4 @@
-package gostalker
+package gostalk
 
 import (
   "bufio"
@@ -23,6 +23,14 @@ func sendCommand(conn Conn, raw string) {
   n, err := fmt.Fprintf(conn, raw+"\r\n")
   Expect(err, ToBeNil)
   Expect(n, ToEqual, len(raw)+2)
+}
+
+func sendCommands(conn Conn, commands []string) (responses []string) {
+  for _, command := range commands {
+    sendCommand(conn, command)
+  }
+
+  return
 }
 
 func readResponseWithBody(reader Reader, body interface{}) {
@@ -111,25 +119,6 @@ func init() {
       Expect(jobs.getJob(), ToDeepEqual, c) // 15
       Expect(jobs.getJob(), ToDeepEqual, b) // 20
     })
-  })
-
-  Describe("reservedJobs", func() {
-    jobs := newReservedJobs()
-    job := newJob(1, 1, 1, 1, []byte("barfoo"))
-
-    It("stores jobs", func() {
-      jobs.putJob(job)
-      Expect(jobs.Len(), ToEqual, 1)
-    })
-
-    It("retrieves jobs", func() {
-      Expect(jobs.getJob(), ToDeepEqual, job)
-    })
-
-    It("panics when no jobs are available", func() {
-      Expect(func() { jobs.getJob() }, ToPanicWith, "runtime error: index out of range")
-    })
-
   })
 
   Describe("protocol", func() {
@@ -237,6 +226,15 @@ func init() {
       case res := <-ok:
         Expect(res, ToEqual, jobResponse{1, "lol"})
       }
+    })
+
+    Describe("bury <id> <pri>", func(){
+      It("can't bury unreserved jobs", func(){
+        altConn, err := net.DialTimeout("tcp", "127.0.0.1:40401", 1*time.Second)
+        Expect(err, ToBeNil)
+        sendCommand(altConn, "use test-tube\r\nput 0 0 0 3\r\nlol\r\nquit")
+        altConn.Close()
+      })
     })
   })
 }

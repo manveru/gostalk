@@ -1,4 +1,4 @@
-package gostalker
+package gostalk
 
 /*
 dsal | tube has jobs that are ready or not.  tube has channels to connections wanting jobs and new jobs coming in.

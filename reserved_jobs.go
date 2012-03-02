@@ -1,4 +1,4 @@
-package gostalker
+package gostalk
 
 import (
   "container/heap"
@@ -17,7 +17,7 @@ func (jobs reservedJobs) Len() int {
 }
 
 func (jobs *reservedJobs) Less(a, b int) bool {
-  return (*jobs)[a].delay.Before((*jobs)[b].delay)
+  return (*jobs)[a].reserveEndsAt.Before((*jobs)[b].reserveEndsAt)
 }
 
 func (jobs *reservedJobs) Pop() (job interface{}) {

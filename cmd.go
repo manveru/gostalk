@@ -1,4 +1,4 @@
-package gostalker
+package gostalk
 
 import (
   "fmt"
@@ -221,6 +221,7 @@ func (cmd *Cmd) put() {
 
   tube := cmd.client.usedTube
   tube.jobSupply <- job
+  cmd.client.isProducer = true
   cmd.respond(fmt.Sprintf("INSERTED %d\r\n", job.id))
 }
 
@@ -251,6 +252,7 @@ func reserveCommon(tubes map[string]*Tube) *jobReserveRequest {
 func (cmd *Cmd) reserve() {
   cmd.assertNumberOfArguments(0)
 
+  cmd.client.isWorker = true
   request := reserveCommon(cmd.client.watchedTubes)
   job := <-request.success
   request.cancel <- true
@@ -264,6 +266,7 @@ func (cmd *Cmd) reserveWithTimeout() {
     seconds = 0
   }
 
+  cmd.client.isWorker = true
   request := reserveCommon(cmd.client.watchedTubes)
 
   select {
@@ -282,7 +285,7 @@ func (cmd *Cmd) stats() {
   urgent, ready, reserved, delayed, buried := server.statJobs()
 
   raw := map[string]interface{}{
-    "version":               GOSTALKER_VERSION,
+    "version":               GOSTALK_VERSION,
     "total-connections":     server.totalConnectionCount,
     "current-connections":   server.currentConnectionCount,
     "pid":                   server.pid,

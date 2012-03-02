@@ -1,4 +1,4 @@
-package gostalker
+package gostalk
 
 import (
   "bufio"
@@ -16,6 +16,8 @@ type Client struct {
   reader       Reader
   usedTube     *Tube
   watchedTubes map[string]*Tube
+  isProducer bool // has issued at least one "put" command
+  isWorker bool // has issued at least one "reserve" or "reserve-with-timeout" command
 }
 
 func newClient(server *Server, conn Conn) (client *Client) {
@@ -29,6 +31,9 @@ func newClient(server *Server, conn Conn) (client *Client) {
   client.useTube("default")
   client.watchTube("default")
   return
+}
+
+func (client *Client) onDisconnect() {
 }
 
 func (client *Client) useTube(name string) {

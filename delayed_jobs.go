@@ -1,4 +1,4 @@
-package gostalker
+package gostalk
 
 import (
   "container/heap"
@@ -17,7 +17,7 @@ func (jobs delayedJobs) Len() int {
 }
 
 func (jobs *delayedJobs) Less(a, b int) bool {
-  return (*jobs)[a].delay.Before((*jobs)[b].delay)
+  return (*jobs)[a].delayEndsAt.Before((*jobs)[b].delayEndsAt)
 }
 
 func (jobs *delayedJobs) Pop() (job interface{}) {
@@ -31,4 +31,12 @@ func (jobs *delayedJobs) Push(job interface{}) {
 
 func (jobs *delayedJobs) Swap(a, b int) {
   (*jobs)[a], (*jobs)[b] = (*jobs)[b], (*jobs)[a]
+}
+
+func (jobs *delayedJobs) getJob() *Job {
+  return heap.Pop(jobs).(*Job)
+}
+
+func (jobs *delayedJobs) putJob(job *Job) {
+  heap.Push(jobs, job)
 }

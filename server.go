@@ -1,4 +1,4 @@
-package gostalker
+package gostalk
 
 import (
   "os"
