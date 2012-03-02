@@ -17,7 +17,7 @@ func (jobs readyJobs) Len() int {
 }
 
 func (jobs *readyJobs) Less(a, b int) bool {
-  return (*jobs)[a].priority > (*jobs)[b].priority
+  return (*jobs)[a].priority < (*jobs)[b].priority
 }
 
 func (jobs *readyJobs) Pop() (job interface{}) {

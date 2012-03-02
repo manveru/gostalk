@@ -32,3 +32,11 @@ func (jobs *reservedJobs) Push(job interface{}) {
 func (jobs *reservedJobs) Swap(a, b int) {
   (*jobs)[a], (*jobs)[b] = (*jobs)[b], (*jobs)[a]
 }
+
+func (jobs *reservedJobs) getJob() *Job {
+  return heap.Pop(jobs).(*Job)
+}
+
+func (jobs *reservedJobs) putJob(job *Job) {
+  heap.Push(jobs, job)
+}
