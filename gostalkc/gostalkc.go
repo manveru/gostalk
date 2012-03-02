@@ -1,15 +1,15 @@
 package gostalkc
 
 import (
-  "launchpad.net/goyaml"
-  "strings"
-  "bytes"
   "bufio"
-  "strconv"
+  "bytes"
   "fmt"
+  "launchpad.net/goyaml"
   "log"
   "net"
   "os"
+  "strconv"
+  "strings"
   "time"
 )
 
@@ -41,11 +41,11 @@ type instance struct {
 // constants for Put
 const (
   EXPECTED_CRLF = "EXPECTED_CRLF"
-  JOB_TOO_BIG = "JOB_TOO_BIG"
-  DRAINING = "DRAINING"
-  INSERTED = "INSERTED"
-  BURIED = "BURIED"
-  msgPut = "put %d %d %d %d\r\n%s"
+  JOB_TOO_BIG   = "JOB_TOO_BIG"
+  DRAINING      = "DRAINING"
+  INSERTED      = "INSERTED"
+  BURIED        = "BURIED"
+  msgPut        = "put %d %d %d %d\r\n%s"
 )
 
 func Dial(hostAndPort string) (i Instance, err error) {
@@ -75,12 +75,10 @@ func newInstance(conn net.Conn) (i Instance) {
 
 func (i *instance) Watch(tubeName string) (err error) {
   log.Println("Watch", tubeName)
-  out := fmt.Sprintf("watch %s\r\n", tubeName)
-  n, err := i.readWriter.WriteString(out)
-  i.readWriter.Flush()
-  if err != nil { return err }
-  if n != len(out) {
-    return exception{fmt.Sprintf("wrote only %d bytes of %d", n, len(out))}
+
+  err = i.write(fmt.Sprintf("watch %s", tubeName))
+  if err != nil {
+    return
   }
 
   line, err := i.readLine()
@@ -96,10 +94,14 @@ func (i *instance) ListTubes() (tubes []string, err error) {
   log.Println("ListTubes")
 
   err = i.write("list-tubes")
-  if err != nil { return }
+  if err != nil {
+    return
+  }
 
   line, err := i.readLine()
-  if err != nil { return }
+  if err != nil {
+    return
+  }
 
   words := strings.Split(line, " ")
 
@@ -108,11 +110,15 @@ func (i *instance) ListTubes() (tubes []string, err error) {
   }
 
   bodyLen, err := strconv.ParseInt(words[1], 10, 64)
-  if err != nil { return }
+  if err != nil {
+    return
+  }
 
   rawYaml := make([]byte, bodyLen+2)
   n, err := i.readWriter.Read(rawYaml)
-  if err != nil { return }
+  if err != nil {
+    return
+  }
   if n != len(rawYaml) {
     err = exception{fmt.Sprintf("read only %d bytes of %d", n, len(rawYaml))}
   }
@@ -126,10 +132,14 @@ func (i *instance) ListTubeUsed() (tubeName string, err error) {
   log.Println("ListTubeUsed")
 
   err = i.write("list-tube-used")
-  if err != nil { return }
+  if err != nil {
+    return
+  }
 
   line, err := i.readLine()
-  if err != nil { return }
+  if err != nil {
+    return
+  }
 
   words := strings.Split(line, " ")
   if words[0] == "USING" {
@@ -145,10 +155,14 @@ func (i *instance) ListTubesWatched() (tubeNames []string, err error) {
   log.Println("ListTubesWatched")
 
   err = i.write("list-tubes-watched")
-  if err != nil { return }
-  
+  if err != nil {
+    return
+  }
+
   line, err := i.readLine()
-  if err != nil { return }
+  if err != nil {
+    return
+  }
 
   words := strings.Split(line, " ")
 
@@ -157,11 +171,15 @@ func (i *instance) ListTubesWatched() (tubeNames []string, err error) {
   }
 
   bodyLen, err := strconv.ParseInt(words[1], 10, 64)
-  if err != nil { return }
+  if err != nil {
+    return
+  }
 
   rawYaml := make([]byte, bodyLen+2)
   n, err := i.readWriter.Read(rawYaml)
-  if err != nil { return }
+  if err != nil {
+    return
+  }
   if n != len(rawYaml) {
     err = exception{fmt.Sprintf("read only %d bytes of %d", n, len(rawYaml))}
   }
@@ -175,7 +193,9 @@ func (i *instance) Put(priority uint32, delay, ttr uint64, data []byte) (jobId u
   i.write(fmt.Sprintf(msgPut, priority, delay, ttr, len(data), data))
 
   line, err := i.readLine()
-  if err != nil { return }
+  if err != nil {
+    return
+  }
 
   words := strings.Split(line, " ")
 
@@ -221,7 +241,9 @@ func (i *instance) readLine() (line string, err error) {
     log.Println(got, err)
     linePart, isPrefix, err = i.readWriter.ReadLine()
     log.Println(linePart, isPrefix, err)
-    if err != nil { return line, err }
+    if err != nil {
+      return line, err
+    }
     lineBuf.Write(linePart)
   }
   return lineBuf.String(), nil

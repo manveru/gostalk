@@ -1,10 +1,10 @@
 package gostalkc
 
 import (
+  "fmt"
   . "github.com/manveru/gobdd"
   "gostalk"
   "reflect"
-  "fmt"
   "sort"
   "testing"
   "time"
@@ -26,7 +26,7 @@ func init() {
     Describe("Watch", func() {
       Expect(i.Watch("testing"), ToBeNil)
     })
-    
+
     Describe("ListTubes", func() {
       tubes, err := i.ListTubes()
       Expect(err, ToBeNil)
