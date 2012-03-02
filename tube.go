@@ -1,10 +1,5 @@
 package gostalk
 
-/*
-dsal | tube has jobs that are ready or not.  tube has channels to connections wanting jobs and new jobs coming in.
-dsal | At any point there's either:  no jobs and no workers, no jobs and some workers, jobs and no workers or jobs and workers.  Just need to cover those cases and transitions between them.
-*/
-
 import (
   "container/heap"
 )
@@ -23,6 +18,7 @@ type Tube struct {
 
   jobDemand chan *jobReserveRequest
   jobSupply chan *Job
+  jobDelete chan *Job
 
   statUrgent   int
   statReady    int
@@ -40,6 +36,7 @@ func newTube(name string) (tube *Tube) {
     delayed:   newDelayedJobs(),
     jobDemand: make(chan *jobReserveRequest),
     jobSupply: make(chan *Job),
+    jobDelete: make(chan *Job),
   }
 
   go tube.handleDemand()
@@ -51,6 +48,8 @@ func (tube *Tube) handleDemand() {
   for {
     if tube.ready.Len() > 0 {
       select {
+      case job := <-tube.jobDelete:
+        tube.delete(job)
       case job := <-tube.jobSupply:
         tube.put(job)
       case request := <-tube.jobDemand:
@@ -61,7 +60,12 @@ func (tube *Tube) handleDemand() {
         }
       }
     } else {
-      tube.put(<-tube.jobSupply)
+      select {
+      case job := <-tube.jobDelete:
+        tube.delete(job)
+      case job := <-tube.jobSupply:
+        tube.put(job)
+      }
     }
   }
 }
@@ -76,8 +80,13 @@ func (tube *Tube) reserve() (job *Job) {
 
 func (tube *Tube) put(job *Job) {
   heap.Push(tube.ready, job)
+  job.state = jobReady
+  job.tube = tube
   tube.statReady = tube.ready.Len()
   if job.priority < 1024 {
     tube.statUrgent += 1
   }
+}
+
+func (tube *Tube) delete(job *Job) {
 }

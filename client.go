@@ -16,8 +16,8 @@ type Client struct {
   reader       Reader
   usedTube     *Tube
   watchedTubes map[string]*Tube
-  isProducer bool // has issued at least one "put" command
-  isWorker bool // has issued at least one "reserve" or "reserve-with-timeout" command
+  isProducer   bool // has issued at least one "put" command
+  isWorker     bool // has issued at least one "reserve" or "reserve-with-timeout" command
 }
 
 func newClient(server *Server, conn Conn) (client *Client) {

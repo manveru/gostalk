@@ -35,7 +35,7 @@ func (cmd *Cmd) respond(res string) {
 func (cmd *Cmd) assertNumberOfArguments(n int) {
   if len(cmd.args) != n {
     pf("Wrong number of arguments: expected %d, got %d", n, len(cmd.args))
-    cmd.respond(BAD_FORMAT)
+    cmd.respond(MSG_BAD_FORMAT)
   }
 }
 
@@ -44,17 +44,23 @@ func (cmd *Cmd) getInt(idx int) (to uint64) {
   to, err := strconv.ParseUint(from, 10, 64)
   if err != nil {
     pf("cmd.getInt(%#v) : %v", from, err)
-    cmd.respond(BAD_FORMAT)
+    cmd.respond(MSG_BAD_FORMAT)
   }
   return
 }
 
 func (cmd *Cmd) bury() {
-  cmd.respond(INTERNAL_ERROR)
+  cmd.respond(MSG_INTERNAL_ERROR)
 }
 
 func (cmd *Cmd) delete() {
-  cmd.respond(INTERNAL_ERROR)
+  cmd.assertNumberOfArguments(1)
+  jobId := cmd.getInt(0)
+  if cmd.server.deleteJob(JobId(jobId)) {
+    cmd.respond(MSG_DELETED)
+  } else {
+    cmd.respond(MSG_NOT_FOUND)
+  }
 }
 
 func (cmd *Cmd) ignore() {
@@ -62,7 +68,7 @@ func (cmd *Cmd) ignore() {
 
   name := cmd.args[0]
   if !NAME_CHARS.MatchString(name) {
-    cmd.respond(BAD_FORMAT)
+    cmd.respond(MSG_BAD_FORMAT)
   }
 
   ignored, totalTubes := cmd.client.ignoreTube(name)
@@ -74,7 +80,7 @@ func (cmd *Cmd) ignore() {
 }
 
 func (cmd *Cmd) kick() {
-  cmd.respond(INTERNAL_ERROR)
+  cmd.respond(MSG_INTERNAL_ERROR)
 }
 
 func (cmd *Cmd) listTubes() {
@@ -88,7 +94,7 @@ func (cmd *Cmd) listTubes() {
   yaml, err := goyaml.Marshal(list)
   if err != nil {
     pf("goyaml.Marshal : %#v", err)
-    cmd.respond(INTERNAL_ERROR)
+    cmd.respond(MSG_INTERNAL_ERROR)
   }
 
   cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
@@ -105,7 +111,7 @@ func (cmd *Cmd) listTubesWatched() {
   yaml, err := goyaml.Marshal(list)
   if err != nil {
     pf("goyaml.Marshal : %#v", err)
-    cmd.respond(INTERNAL_ERROR)
+    cmd.respond(MSG_INTERNAL_ERROR)
   }
 
   cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
@@ -115,19 +121,19 @@ func (cmd *Cmd) listTubeUsed() {
   cmd.respond(fmt.Sprintf("USING %s\r\n", cmd.client.usedTube.name))
 }
 func (cmd *Cmd) pauseTube() {
-  cmd.respond(INTERNAL_ERROR)
+  cmd.respond(MSG_INTERNAL_ERROR)
 }
 func (cmd *Cmd) peek() {
-  cmd.respond(INTERNAL_ERROR)
+  cmd.respond(MSG_INTERNAL_ERROR)
 }
 func (cmd *Cmd) peekBuried() {
-  cmd.respond(INTERNAL_ERROR)
+  cmd.respond(MSG_INTERNAL_ERROR)
 }
 func (cmd *Cmd) peekDelayed() {
-  cmd.respond(INTERNAL_ERROR)
+  cmd.respond(MSG_INTERNAL_ERROR)
 }
 func (cmd *Cmd) peekReady() {
-  cmd.respond(INTERNAL_ERROR)
+  cmd.respond(MSG_INTERNAL_ERROR)
 }
 
 func (cmd *Cmd) put() {
@@ -147,28 +153,28 @@ func (cmd *Cmd) put() {
   bodySize := cmd.getInt(3)
 
   if bodySize > JOB_DATA_SIZE_LIMIT {
-    cmd.respond(JOB_TOO_BIG)
+    cmd.respond(MSG_JOB_TOO_BIG)
   }
 
   body := make([]byte, bodySize)
   _, err := io.ReadFull(cmd.client.reader, body)
   if err != nil {
     pf("io.ReadFull : %#v", err)
-    cmd.respond(INTERNAL_ERROR)
+    cmd.respond(MSG_INTERNAL_ERROR)
   }
   rn := make([]byte, 2)
   _, err = io.ReadAtLeast(cmd.client.reader, rn, 2)
   if err != nil {
     if err.Error() == "ErrUnexpextedEOF" {
-      cmd.respond(EXPECTED_CRLF)
+      cmd.respond(MSG_EXPECTED_CRLF)
     } else {
       pf("io.ReadAtLeast : %#v", err)
-      cmd.respond(INTERNAL_ERROR)
+      cmd.respond(MSG_INTERNAL_ERROR)
     }
   }
 
   if rn[0] != '\r' || rn[1] != '\n' {
-    cmd.respond(EXPECTED_CRLF)
+    cmd.respond(MSG_EXPECTED_CRLF)
   }
 
   id := <-cmd.server.getJobId
@@ -176,6 +182,7 @@ func (cmd *Cmd) put() {
 
   tube := cmd.client.usedTube
   tube.jobSupply <- job
+  cmd.server.jobs[job.id] = job
   cmd.client.isProducer = true
   cmd.respond(fmt.Sprintf("INSERTED %d\r\n", job.id))
 }
@@ -229,7 +236,7 @@ func (cmd *Cmd) reserveWithTimeout() {
     cmd.respond(job.reservedString())
     request.cancel <- true
   case <-time.After(time.Duration(seconds) * time.Second):
-    cmd.respond(TIMED_OUT)
+    cmd.respond(MSG_TIMED_OUT)
     request.cancel <- true
   }
 }
@@ -287,18 +294,18 @@ func (cmd *Cmd) stats() {
   yaml, err := goyaml.Marshal(raw)
   if err != nil {
     pf("goyaml.Marshal : %#v", err)
-    cmd.respond(INTERNAL_ERROR)
+    cmd.respond(MSG_INTERNAL_ERROR)
   }
   cmd.respond(string(yaml))
 }
 func (cmd *Cmd) statsJob() {
-  cmd.respond(INTERNAL_ERROR)
+  cmd.respond(MSG_INTERNAL_ERROR)
 }
 func (cmd *Cmd) statsTube() {
-  cmd.respond(INTERNAL_ERROR)
+  cmd.respond(MSG_INTERNAL_ERROR)
 }
 func (cmd *Cmd) touch() {
-  cmd.respond(INTERNAL_ERROR)
+  cmd.respond(MSG_INTERNAL_ERROR)
 }
 
 func (cmd *Cmd) use() {
@@ -306,7 +313,7 @@ func (cmd *Cmd) use() {
 
   name := cmd.args[0]
   if !NAME_CHARS.MatchString(name) {
-    cmd.respond(BAD_FORMAT)
+    cmd.respond(MSG_BAD_FORMAT)
   }
 
   cmd.client.usedTube = cmd.server.findOrCreateTube(name)
@@ -318,7 +325,7 @@ func (cmd *Cmd) watch() {
 
   name := cmd.args[0]
   if !NAME_CHARS.MatchString(name) {
-    cmd.respond(BAD_FORMAT)
+    cmd.respond(MSG_BAD_FORMAT)
   }
 
   cmd.client.watchTube(name)

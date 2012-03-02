@@ -93,8 +93,17 @@ func init() {
       })
     })
 
+    Describe("Delete", func() {
+      It("deletes a job", func() {
+        err := i.Delete(0)
+        Expect(err, ToBeNil)
+      })
+    })
+
     Describe("Touch", func() {
       It("tells the server to give us more time", func() {
+        err := i.Touch(0)
+        Expect(err, ToBeNil)
       })
     })
   })

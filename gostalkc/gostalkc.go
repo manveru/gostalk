@@ -18,6 +18,8 @@ type Instance interface {
   ListTubes() ([]string, error)
   ListTubeUsed() (string, error)
   ListTubesWatched() ([]string, error)
+  Delete(jobId uint64) error
+  Touch(jobId uint64) error
   Put(uint32, uint64, uint64, []byte) (uint64, bool, error)
   Ignore(tubeName string) (uint64, error)
   Reserve() (uint64, []byte, error)
@@ -33,17 +35,23 @@ const (
   JOB_TOO_BIG           = "JOB_TOO_BIG"
   DRAINING              = "DRAINING"
   INSERTED              = "INSERTED"
+  DELETED               = "DELETED"
   BURIED                = "BURIED"
+  TOUCHED               = "TOUCHED"
+  NOT_FOUND             = "NOT_FOUND"
   RESERVED              = "RESERVED"
   NOT_IGNORED           = "NOT_IGNORED"
   WATCHING              = "WATCHING"
-  msgPut                = "put %d %d %d %d\r\n%s"
-  msgListTubesWatched   = "list-tubes-watched"
-  msgWatch              = "watch %s"
-  msgListTubes          = "list-tubes"
-  msgListTubeUsed       = "list-tube-used"
-  msgReserve            = "reserve"
-  msgReserveWithTimeout = "reserve-with-timeout %d"
+  msgPut                = "put %d %d %d %d\r\n%s\r\n"
+  msgListTubesWatched   = "list-tubes-watched\r\n"
+  msgDelete             = "delete %d\r\n"
+  msgWatch              = "watch %s\r\n"
+  msgListTubes          = "list-tubes\r\n"
+  msgListTubeUsed       = "list-tube-used\r\n"
+  msgReserve            = "reserve\r\n"
+  msgReserveWithTimeout = "reserve-with-timeout %d\r\n"
+  msgTouch              = "touch %d\r\n"
+  msgIgnore             = "ignore %s\r\n"
 )
 
 var (
@@ -164,7 +172,7 @@ func (i *instance) ListTubeUsed() (tubeName string, err error) {
 func (i *instance) Ignore(tubeName string) (tubesLeft uint64, err error) {
   logger.Println("ListTubesWatched")
 
-  err = i.write(fmt.Sprintf("ignore %s", tubeName))
+  err = i.write(fmt.Sprintf(msgIgnore, tubeName))
   if err != nil {
     return
   }
@@ -293,14 +301,65 @@ func (i *instance) Reserve() (jobId uint64, data []byte, err error) {
   return
 }
 
+/*
+The "touch" command allows a worker to request more time to work on a job.
+This is useful for jobs that potentially take a long time, but you still want
+the benefits of a TTR pulling a job away from an unresponsive worker.  A worker
+may periodically tell the server that it's still alive and processing a job
+(e.g. it may do this on DEADLINE_SOON).
+
+The touch command looks like this:
+
+touch <id>\r\n
+
+ - <id> is the ID of a job reserved by the current connection.
+
+There are two possible responses:
+
+ - "TOUCHED\r\n" to indicate success.
+
+ - "NOT_FOUND\r\n" if the job does not exist or is not reserved by the client.
+*/
+func (i *instance) Touch(jobId uint64) (err error) {
+  i.write(fmt.Sprintf(msgTouch, jobId))
+
+  line, err := i.readLine()
+  if err != nil {
+    return
+  }
+
+  switch line {
+  case TOUCHED:
+    return
+  case NOT_FOUND:
+    err = exception{NOT_FOUND}
+  }
+
+  return
+}
+
+func (i *instance) Delete(jobId uint64) (err error) {
+  i.write(fmt.Sprintf(msgDelete, jobId))
+
+  line, err := i.readLine()
+  if err != nil {
+    return
+  }
+
+  if line == DELETED {
+    return
+  }
+
+  return exception{line}
+}
+
 func (i *instance) write(line string) (err error) {
   logger.Printf("i.write %#v\n", line)
-  out := line + "\r\n"
-  n, err := i.readWriter.WriteString(out)
+  n, err := i.readWriter.WriteString(line)
   i.readWriter.Flush()
 
-  if err == nil && n != len(out) {
-    err = exception{fmt.Sprintf("wrote only %d bytes of %d", n, len(out))}
+  if err == nil && n != len(line) {
+    err = exception{fmt.Sprintf("wrote only %d bytes of %d", n, len(line))}
   }
 
   return
@@ -313,11 +372,7 @@ func (i *instance) readLine() (line string, err error) {
   isPrefix := true
 
   for isPrefix {
-    logger.Println("isPrefix:", isPrefix)
-    got, err := i.readWriter.Peek(1)
-    logger.Println(got, err)
     linePart, isPrefix, err = i.readWriter.ReadLine()
-    logger.Println(linePart, isPrefix, err)
     if err != nil {
       return line, err
     }

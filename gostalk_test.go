@@ -228,8 +228,8 @@ func init() {
       }
     })
 
-    Describe("bury <id> <pri>", func(){
-      It("can't bury unreserved jobs", func(){
+    Describe("bury <id> <pri>", func() {
+      It("can't bury unreserved jobs", func() {
         altConn, err := net.DialTimeout("tcp", "127.0.0.1:40401", 1*time.Second)
         Expect(err, ToBeNil)
         sendCommand(altConn, "use test-tube\r\nput 0 0 0 3\r\nlol\r\nquit")

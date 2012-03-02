@@ -9,6 +9,7 @@ import (
 
 type Server struct {
   getJobId               chan JobId
+  jobs                   map[JobId]*Job
   tubes                  map[string]*Tube
   pid                    int
   startedAt              time.Time
@@ -21,6 +22,7 @@ func newServer() (server *Server) {
   server = &Server{
     getJobId: make(chan JobId, 42),
     tubes:    make(map[string]*Tube),
+    jobs:     make(map[JobId]*Job),
     currentConnectionCount: 0,
     totalConnectionCount:   0,
     pid:                    os.Getpid(),
@@ -75,6 +77,15 @@ func (server *Server) findOrCreateTube(name string) *Tube {
   return found
 }
 
+func (server *Server) deleteJob(id JobId) (deleted bool) {
+  job, found := server.jobs[id]
+  if found {
+    job.deleteFrom(server)
+    deleted = true
+  }
+  return
+}
+
 func (server *Server) accept(conn Conn) {
   defer server.acceptFinalize(conn)
   server.totalConnectionCount += 1
@@ -126,7 +137,7 @@ func processCommand(server *Server, client *Client) (err error) {
 
   select {
   case <-unknownCommandChan:
-    response = UNKNOWN_COMMAND
+    response = MSG_UNKNOWN_COMMAND
   case response = <-cmd.respondChan:
     cmd.server.commandUsage[cmd.name] += 1
   case <-cmd.closeConn:
