@@ -47,7 +47,7 @@ const (
 )
 
 var (
-  logger = log.New(os.Stdout, "gostalkc ", log.LstdFlags)
+  logger = log.New(os.Stdout, "stalkc ", log.LstdFlags)
 )
 
 type exception struct {
@@ -84,7 +84,7 @@ func newInstance(conn net.Conn) (i Instance) {
 }
 
 func (i *instance) Watch(tubeName string) (err error) {
-  log.Println("Watch", tubeName)
+  logger.Println("Watch", tubeName)
 
   err = i.write(fmt.Sprintf(msgWatch, tubeName))
   if err != nil {
@@ -101,7 +101,7 @@ func (i *instance) Watch(tubeName string) (err error) {
 }
 
 func (i *instance) ListTubes() (tubes []string, err error) {
-  log.Println("ListTubes")
+  logger.Println("ListTubes")
 
   err = i.write(msgListTubes)
   if err != nil {
@@ -139,7 +139,7 @@ func (i *instance) ListTubes() (tubes []string, err error) {
 }
 
 func (i *instance) ListTubeUsed() (tubeName string, err error) {
-  log.Println("ListTubeUsed")
+  logger.Println("ListTubeUsed")
 
   err = i.write(msgListTubeUsed)
   if err != nil {
@@ -162,7 +162,7 @@ func (i *instance) ListTubeUsed() (tubeName string, err error) {
 }
 
 func (i *instance) Ignore(tubeName string) (tubesLeft uint64, err error) {
-  log.Println("ListTubesWatched")
+  logger.Println("ListTubesWatched")
 
   err = i.write(fmt.Sprintf("ignore %s", tubeName))
   if err != nil {
@@ -189,7 +189,7 @@ func (i *instance) Ignore(tubeName string) (tubesLeft uint64, err error) {
 }
 
 func (i *instance) ListTubesWatched() (tubeNames []string, err error) {
-  log.Println("ListTubesWatched")
+  logger.Println("ListTubesWatched")
 
   err = i.write(msgListTubesWatched)
   if err != nil {
@@ -243,9 +243,9 @@ func (i *instance) Put(priority uint32, delay, ttr uint64, data []byte) (jobId u
     jobId, err = strconv.ParseUint(words[1], 10, 64)
     buried = true
   case EXPECTED_CRLF:
-    err = exception{DRAINING}
+    err = exception{EXPECTED_CRLF}
   case JOB_TOO_BIG:
-    err = exception{DRAINING}
+    err = exception{JOB_TOO_BIG}
   case DRAINING:
     err = exception{DRAINING}
   }
@@ -284,6 +284,7 @@ func (i *instance) Reserve() (jobId uint64, data []byte, err error) {
     }
     if n != len(data) {
       err = exception{fmt.Sprintf("read only %d bytes of %d", n, len(data))}
+      return
     }
 
     data = data[:len(data)-2]
@@ -293,7 +294,7 @@ func (i *instance) Reserve() (jobId uint64, data []byte, err error) {
 }
 
 func (i *instance) write(line string) (err error) {
-  log.Printf("i.write %#v\n", line)
+  logger.Printf("i.write %#v\n", line)
   out := line + "\r\n"
   n, err := i.readWriter.WriteString(out)
   i.readWriter.Flush()
@@ -306,17 +307,17 @@ func (i *instance) write(line string) (err error) {
 }
 
 func (i *instance) readLine() (line string, err error) {
-  log.Println("i.readLine")
+  logger.Println("i.readLine")
   lineBuf := new(bytes.Buffer)
   var linePart []byte
   isPrefix := true
 
   for isPrefix {
-    log.Println("isPrefix:", isPrefix)
+    logger.Println("isPrefix:", isPrefix)
     got, err := i.readWriter.Peek(1)
-    log.Println(got, err)
+    logger.Println(got, err)
     linePart, isPrefix, err = i.readWriter.ReadLine()
-    log.Println(linePart, isPrefix, err)
+    logger.Println(linePart, isPrefix, err)
     if err != nil {
       return line, err
     }
