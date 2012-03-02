@@ -52,9 +52,11 @@ func (cmd *Cmd) getInt(idx int) (to uint64) {
 func (cmd *Cmd) bury() {
   cmd.respond(INTERNAL_ERROR)
 }
+
 func (cmd *Cmd) delete() {
   cmd.respond(INTERNAL_ERROR)
 }
+
 func (cmd *Cmd) ignore() {
   cmd.assertNumberOfArguments(1)
 
@@ -66,9 +68,11 @@ func (cmd *Cmd) ignore() {
   cmd.client.ignoreTube(name)
   cmd.respond("OK\r\n")
 }
+
 func (cmd *Cmd) kick() {
   cmd.respond(INTERNAL_ERROR)
 }
+
 func (cmd *Cmd) listTubes() {
   cmd.assertNumberOfArguments(0)
 
@@ -85,6 +89,7 @@ func (cmd *Cmd) listTubes() {
 
   cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
 }
+
 func (cmd *Cmd) listTubesWatched() {
   cmd.assertNumberOfArguments(0)
 

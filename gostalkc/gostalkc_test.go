@@ -44,6 +44,25 @@ func init() {
       Expect(err, ToBeNil)
       Expect(tubes, WhenSortedToEqual, []string{"default", "testing"})
     })
+
+    Describe("ListTubesWatched", func() {
+      tubes, err := i.ListTubesWatched()
+      Expect(err, ToBeNil)
+      Expect(tubes, WhenSortedToEqual, []string{"default", "testing"})
+    })
+
+    Describe("ListTubesWatched", func() {
+      tubes, err := i.ListTubesWatched()
+      Expect(err, ToBeNil)
+      Expect(tubes, WhenSortedToEqual, []string{"default", "testing"})
+    })
+
+    Describe("Put", func() {
+      jobId, buried, err := i.Put(1, 0, 0, []byte("hi"))
+      Expect(err, ToBeNil)
+      Expect(jobId, ToEqual, uint64(0))
+      Expect(buried, ToEqual, false)
+    })
   })
 }
 

@@ -17,11 +17,11 @@ var (
   logger = log.New(os.Stdout, "gostalkc ", log.LstdFlags)
 )
 
-type bufferError struct {
+type exception struct {
   msg string
 }
 
-func (be bufferError) Error() string {
+func (be exception) Error() string {
   return be.msg
 }
 
@@ -30,12 +30,23 @@ type Instance interface {
   ListTubes() ([]string, error)
   ListTubeUsed() (string, error)
   ListTubesWatched() ([]string, error)
+  Put(uint32, uint64, uint64, []byte) (uint64, bool, error)
 }
 
 type instance struct {
   conn       net.Conn
   readWriter *bufio.ReadWriter
 }
+
+// constants for Put
+const (
+  EXPECTED_CRLF = "EXPECTED_CRLF"
+  JOB_TOO_BIG = "JOB_TOO_BIG"
+  DRAINING = "DRAINING"
+  INSERTED = "INSERTED"
+  BURIED = "BURIED"
+  msgPut = "put %d %d %d %d\r\n%s"
+)
 
 func Dial(hostAndPort string) (i Instance, err error) {
   conn, err := net.Dial("tcp", hostAndPort)
@@ -69,13 +80,13 @@ func (i *instance) Watch(tubeName string) (err error) {
   i.readWriter.Flush()
   if err != nil { return err }
   if n != len(out) {
-    return bufferError{fmt.Sprintf("wrote only %d bytes of %d", n, len(out))}
+    return exception{fmt.Sprintf("wrote only %d bytes of %d", n, len(out))}
   }
 
   line, err := i.readLine()
 
   if line != "OK" {
-    err = bufferError{line}
+    err = exception{line}
   }
 
   return
@@ -84,7 +95,7 @@ func (i *instance) Watch(tubeName string) (err error) {
 func (i *instance) ListTubes() (tubes []string, err error) {
   log.Println("ListTubes")
 
-  err = i.writeLine("list-tubes")
+  err = i.write("list-tubes")
   if err != nil { return }
 
   line, err := i.readLine()
@@ -93,7 +104,7 @@ func (i *instance) ListTubes() (tubes []string, err error) {
   words := strings.Split(line, " ")
 
   if words[0] != "OK" {
-    return nil, bufferError{words[0]}
+    return nil, exception{words[0]}
   }
 
   bodyLen, err := strconv.ParseInt(words[1], 10, 64)
@@ -103,7 +114,7 @@ func (i *instance) ListTubes() (tubes []string, err error) {
   n, err := i.readWriter.Read(rawYaml)
   if err != nil { return }
   if n != len(rawYaml) {
-    err = bufferError{fmt.Sprintf("read only %d bytes of %d", n, len(rawYaml))}
+    err = exception{fmt.Sprintf("read only %d bytes of %d", n, len(rawYaml))}
   }
 
   dest := make([]string, 0)
@@ -114,7 +125,7 @@ func (i *instance) ListTubes() (tubes []string, err error) {
 func (i *instance) ListTubeUsed() (tubeName string, err error) {
   log.Println("ListTubeUsed")
 
-  err = i.writeLine("list-tube-used")
+  err = i.write("list-tube-used")
   if err != nil { return }
 
   line, err := i.readLine()
@@ -124,7 +135,7 @@ func (i *instance) ListTubeUsed() (tubeName string, err error) {
   if words[0] == "USING" {
     tubeName = words[1]
   } else {
-    err = bufferError{words[0]}
+    err = exception{words[0]}
   }
 
   return
@@ -133,7 +144,7 @@ func (i *instance) ListTubeUsed() (tubeName string, err error) {
 func (i *instance) ListTubesWatched() (tubeNames []string, err error) {
   log.Println("ListTubesWatched")
 
-  err = i.writeLine("list-tubes-watched")
+  err = i.write("list-tubes-watched")
   if err != nil { return }
   
   line, err := i.readLine()
@@ -142,7 +153,7 @@ func (i *instance) ListTubesWatched() (tubeNames []string, err error) {
   words := strings.Split(line, " ")
 
   if words[0] != "OK" {
-    return nil, bufferError{words[0]}
+    return nil, exception{words[0]}
   }
 
   bodyLen, err := strconv.ParseInt(words[1], 10, 64)
@@ -152,7 +163,7 @@ func (i *instance) ListTubesWatched() (tubeNames []string, err error) {
   n, err := i.readWriter.Read(rawYaml)
   if err != nil { return }
   if n != len(rawYaml) {
-    err = bufferError{fmt.Sprintf("read only %d bytes of %d", n, len(rawYaml))}
+    err = exception{fmt.Sprintf("read only %d bytes of %d", n, len(rawYaml))}
   }
 
   dest := make([]string, 0)
@@ -160,14 +171,39 @@ func (i *instance) ListTubesWatched() (tubeNames []string, err error) {
   return dest, err
 }
 
-func (i *instance) writeLine(line string) (err error) {
-  log.Println("writeLine", line)
+func (i *instance) Put(priority uint32, delay, ttr uint64, data []byte) (jobId uint64, buried bool, err error) {
+  i.write(fmt.Sprintf(msgPut, priority, delay, ttr, len(data), data))
+
+  line, err := i.readLine()
+  if err != nil { return }
+
+  words := strings.Split(line, " ")
+
+  switch words[0] {
+  case INSERTED:
+    jobId, err = strconv.ParseUint(words[1], 10, 64)
+  case BURIED:
+    jobId, err = strconv.ParseUint(words[1], 10, 64)
+    buried = true
+  case EXPECTED_CRLF:
+    err = exception{DRAINING}
+  case JOB_TOO_BIG:
+    err = exception{DRAINING}
+  case DRAINING:
+    err = exception{DRAINING}
+  }
+
+  return
+}
+
+func (i *instance) write(line string) (err error) {
+  log.Printf("i.write %#v\n", line)
   out := line + "\r\n"
   n, err := i.readWriter.WriteString(out)
   i.readWriter.Flush()
 
   if err == nil && n != len(out) {
-    err = bufferError{fmt.Sprintf("wrote only %d bytes of %d", n, len(out))}
+    err = exception{fmt.Sprintf("wrote only %d bytes of %d", n, len(out))}
   }
 
   return
