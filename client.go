@@ -44,6 +44,13 @@ func (client *Client) watchTube(name string) {
   client.watchedTubes[name] = client.server.findOrCreateTube(name)
 }
 
-func (client *Client) ignoreTube(name string) {
-  delete(client.watchedTubes, name)
+func (client *Client) ignoreTube(name string) (ignored bool, totalTubes int) {
+  totalTubes = len(client.watchedTubes)
+
+  if totalTubes > 1 {
+    delete(client.watchedTubes, name)
+    return true, totalTubes - 1
+  }
+
+  return false, totalTubes
 }

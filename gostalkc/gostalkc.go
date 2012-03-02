@@ -13,6 +13,39 @@ import (
   "time"
 )
 
+type Instance interface {
+  Watch(tubeName string) error
+  ListTubes() ([]string, error)
+  ListTubeUsed() (string, error)
+  ListTubesWatched() ([]string, error)
+  Put(uint32, uint64, uint64, []byte) (uint64, bool, error)
+  Ignore(tubeName string) (uint64, error)
+  Reserve() (uint64, []byte, error)
+}
+
+type instance struct {
+  conn       net.Conn
+  readWriter *bufio.ReadWriter
+}
+
+const (
+  EXPECTED_CRLF         = "EXPECTED_CRLF"
+  JOB_TOO_BIG           = "JOB_TOO_BIG"
+  DRAINING              = "DRAINING"
+  INSERTED              = "INSERTED"
+  BURIED                = "BURIED"
+  RESERVED              = "RESERVED"
+  NOT_IGNORED           = "NOT_IGNORED"
+  WATCHING              = "WATCHING"
+  msgPut                = "put %d %d %d %d\r\n%s"
+  msgListTubesWatched   = "list-tubes-watched"
+  msgWatch              = "watch %s"
+  msgListTubes          = "list-tubes"
+  msgListTubeUsed       = "list-tube-used"
+  msgReserve            = "reserve"
+  msgReserveWithTimeout = "reserve-with-timeout %d"
+)
+
 var (
   logger = log.New(os.Stdout, "gostalkc ", log.LstdFlags)
 )
@@ -24,29 +57,6 @@ type exception struct {
 func (be exception) Error() string {
   return be.msg
 }
-
-type Instance interface {
-  Watch(tubeName string) error
-  ListTubes() ([]string, error)
-  ListTubeUsed() (string, error)
-  ListTubesWatched() ([]string, error)
-  Put(uint32, uint64, uint64, []byte) (uint64, bool, error)
-}
-
-type instance struct {
-  conn       net.Conn
-  readWriter *bufio.ReadWriter
-}
-
-// constants for Put
-const (
-  EXPECTED_CRLF = "EXPECTED_CRLF"
-  JOB_TOO_BIG   = "JOB_TOO_BIG"
-  DRAINING      = "DRAINING"
-  INSERTED      = "INSERTED"
-  BURIED        = "BURIED"
-  msgPut        = "put %d %d %d %d\r\n%s"
-)
 
 func Dial(hostAndPort string) (i Instance, err error) {
   conn, err := net.Dial("tcp", hostAndPort)
@@ -76,7 +86,7 @@ func newInstance(conn net.Conn) (i Instance) {
 func (i *instance) Watch(tubeName string) (err error) {
   log.Println("Watch", tubeName)
 
-  err = i.write(fmt.Sprintf("watch %s", tubeName))
+  err = i.write(fmt.Sprintf(msgWatch, tubeName))
   if err != nil {
     return
   }
@@ -93,7 +103,7 @@ func (i *instance) Watch(tubeName string) (err error) {
 func (i *instance) ListTubes() (tubes []string, err error) {
   log.Println("ListTubes")
 
-  err = i.write("list-tubes")
+  err = i.write(msgListTubes)
   if err != nil {
     return
   }
@@ -131,7 +141,7 @@ func (i *instance) ListTubes() (tubes []string, err error) {
 func (i *instance) ListTubeUsed() (tubeName string, err error) {
   log.Println("ListTubeUsed")
 
-  err = i.write("list-tube-used")
+  err = i.write(msgListTubeUsed)
   if err != nil {
     return
   }
@@ -151,10 +161,37 @@ func (i *instance) ListTubeUsed() (tubeName string, err error) {
   return
 }
 
+func (i *instance) Ignore(tubeName string) (tubesLeft uint64, err error) {
+  log.Println("ListTubesWatched")
+
+  err = i.write(fmt.Sprintf("ignore %s", tubeName))
+  if err != nil {
+    return
+  }
+
+  line, err := i.readLine()
+  if err != nil {
+    return
+  }
+
+  words := strings.Split(line, " ")
+
+  switch words[0] {
+  case WATCHING:
+    return strconv.ParseUint(words[1], 10, 64)
+  case NOT_IGNORED:
+    err = exception{NOT_IGNORED}
+  default:
+    err = exception{line}
+  }
+
+  return
+}
+
 func (i *instance) ListTubesWatched() (tubeNames []string, err error) {
   log.Println("ListTubesWatched")
 
-  err = i.write("list-tubes-watched")
+  err = i.write(msgListTubesWatched)
   if err != nil {
     return
   }
@@ -211,6 +248,45 @@ func (i *instance) Put(priority uint32, delay, ttr uint64, data []byte) (jobId u
     err = exception{DRAINING}
   case DRAINING:
     err = exception{DRAINING}
+  }
+
+  return
+}
+
+func (i *instance) Reserve() (jobId uint64, data []byte, err error) {
+  i.write(msgReserve)
+
+  line, err := i.readLine()
+  if err != nil {
+    return
+  }
+
+  words := strings.Split(line, " ")
+
+  switch words[0] {
+  case RESERVED:
+    jobId, err = strconv.ParseUint(words[1], 10, 64)
+    if err != nil {
+      return
+    }
+
+    var dataLen uint64
+    dataLen, err = strconv.ParseUint(words[2], 10, 64)
+    if err != nil {
+      return
+    }
+
+    data = make([]byte, dataLen+2)
+    var n int
+    n, err = i.readWriter.Read(data)
+    if err != nil {
+      return
+    }
+    if n != len(data) {
+      err = exception{fmt.Sprintf("read only %d bytes of %d", n, len(data))}
+    }
+
+    data = data[:len(data)-2]
   }
 
   return

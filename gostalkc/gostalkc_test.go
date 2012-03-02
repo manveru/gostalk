@@ -24,44 +24,78 @@ func init() {
     Expect(err, ToBeNil)
 
     Describe("Watch", func() {
-      Expect(i.Watch("testing"), ToBeNil)
+      It("watches another tube", func() {
+        Expect(i.Watch("testing"), ToBeNil)
+      })
     })
 
     Describe("ListTubes", func() {
-      tubes, err := i.ListTubes()
-      Expect(err, ToBeNil)
-      Expect(tubes, WhenSortedToEqual, []string{"default", "testing"})
+      It("lists all tubes on the server", func() {
+        tubes, err := i.ListTubes()
+        Expect(err, ToBeNil)
+        Expect(tubes, WhenSortedToEqual, []string{"default", "testing"})
+      })
     })
 
     Describe("ListTubeUsed", func() {
-      tube, err := i.ListTubeUsed()
-      Expect(err, ToBeNil)
-      Expect(tube, ToDeepEqual, "default")
+      It("answers the tube our jobs are being put into", func() {
+        tube, err := i.ListTubeUsed()
+        Expect(err, ToBeNil)
+        Expect(tube, ToDeepEqual, "default")
+      })
     })
 
     Describe("ListTubesWatched", func() {
-      tubes, err := i.ListTubesWatched()
-      Expect(err, ToBeNil)
-      Expect(tubes, WhenSortedToEqual, []string{"default", "testing"})
+      It("lists the tubes we can receive jobs from", func() {
+        tubes, err := i.ListTubesWatched()
+        Expect(err, ToBeNil)
+        Expect(tubes, WhenSortedToEqual, []string{"default", "testing"})
+      })
     })
 
-    Describe("ListTubesWatched", func() {
-      tubes, err := i.ListTubesWatched()
-      Expect(err, ToBeNil)
-      Expect(tubes, WhenSortedToEqual, []string{"default", "testing"})
-    })
+    Describe("Ignore", func() {
+      It("removes a tube from the watch list", func() {
+        amount, err := i.Ignore("testing")
+        Expect(err, ToBeNil)
+        Expect(amount, ToEqual, uint64(1))
 
-    Describe("ListTubesWatched", func() {
-      tubes, err := i.ListTubesWatched()
-      Expect(err, ToBeNil)
-      Expect(tubes, WhenSortedToEqual, []string{"default", "testing"})
+        tubes, err := i.ListTubesWatched()
+        Expect(err, ToBeNil)
+        Expect(tubes, WhenSortedToEqual, []string{"default"})
+      })
+
+      It("cannot remove the last tube from the watch list", func() {
+        amount, err := i.Ignore("testing")
+        Expect(err, ToEqual, exception{NOT_IGNORED})
+        Expect(amount, ToEqual, uint64(0))
+
+        tubes, err := i.ListTubesWatched()
+        Expect(err, ToBeNil)
+        Expect(tubes, WhenSortedToEqual, []string{"default"})
+      })
     })
 
     Describe("Put", func() {
-      jobId, buried, err := i.Put(1, 0, 0, []byte("hi"))
-      Expect(err, ToBeNil)
-      Expect(jobId, ToEqual, uint64(0))
-      Expect(buried, ToEqual, false)
+      It("successfully puts a new job", func() {
+        jobId, buried, err := i.Put(1, 0, 0, []byte("hi"))
+        Expect(err, ToBeNil)
+        Expect(jobId, ToEqual, uint64(0))
+        Expect(buried, ToEqual, false)
+      })
+    })
+
+    Describe("Reserve", func() {
+      It("receives a job", func() {
+        id, data, err := i.Reserve()
+        Expect(err, ToBeNil)
+        Expect(id, ToEqual, uint64(0))
+        Expect(string(data), ToEqual, "hi")
+      })
+    })
+
+    Describe("Touch", func() {
+      It("tells the server to give us more time", func() {
+      })
     })
   })
 }
