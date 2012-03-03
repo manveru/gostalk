@@ -20,6 +20,7 @@ type Instance interface {
   ListTubesWatched() ([]string, error)
   Delete(jobId uint64) error
   Touch(jobId uint64) error
+  ReserveWithTimeout(int) (uint64, []byte, error)
   Put(uint32, uint64, uint64, []byte) (uint64, bool, error)
   Ignore(tubeName string) (uint64, error)
   Reserve() (uint64, []byte, error)
@@ -31,27 +32,31 @@ type instance struct {
 }
 
 const (
-  EXPECTED_CRLF         = "EXPECTED_CRLF"
-  JOB_TOO_BIG           = "JOB_TOO_BIG"
-  DRAINING              = "DRAINING"
-  INSERTED              = "INSERTED"
-  DELETED               = "DELETED"
-  BURIED                = "BURIED"
-  TOUCHED               = "TOUCHED"
-  NOT_FOUND             = "NOT_FOUND"
-  RESERVED              = "RESERVED"
-  NOT_IGNORED           = "NOT_IGNORED"
-  WATCHING              = "WATCHING"
-  msgPut                = "put %d %d %d %d\r\n%s\r\n"
-  msgListTubesWatched   = "list-tubes-watched\r\n"
+  BURIED        = "BURIED"
+  DELETED       = "DELETED"
+  DRAINING      = "DRAINING"
+  TIMED_OUT     = "TIMED_OUT"
+  EXPECTED_CRLF = "EXPECTED_CRLF"
+  INSERTED      = "INSERTED"
+  JOB_TOO_BIG   = "JOB_TOO_BIG"
+  NOT_FOUND     = "NOT_FOUND"
+  NOT_IGNORED   = "NOT_IGNORED"
+  RESERVED      = "RESERVED"
+  TOUCHED       = "TOUCHED"
+  WATCHING      = "WATCHING"
+)
+
+const (
   msgDelete             = "delete %d\r\n"
-  msgWatch              = "watch %s\r\n"
+  msgIgnore             = "ignore %s\r\n"
   msgListTubes          = "list-tubes\r\n"
+  msgListTubesWatched   = "list-tubes-watched\r\n"
   msgListTubeUsed       = "list-tube-used\r\n"
+  msgPut                = "put %d %d %d %d\r\n%s\r\n"
   msgReserve            = "reserve\r\n"
   msgReserveWithTimeout = "reserve-with-timeout %d\r\n"
   msgTouch              = "touch %d\r\n"
-  msgIgnore             = "ignore %s\r\n"
+  msgWatch              = "watch %s\r\n"
 )
 
 var (
@@ -296,6 +301,48 @@ func (i *instance) Reserve() (jobId uint64, data []byte, err error) {
     }
 
     data = data[:len(data)-2]
+  }
+
+  return
+}
+
+func (i *instance) ReserveWithTimeout(timeout int) (jobId uint64, data []byte, err error) {
+  i.write(fmt.Sprintf(msgReserveWithTimeout, timeout))
+
+  line, err := i.readLine()
+  if err != nil {
+    return
+  }
+
+  words := strings.Split(line, " ")
+
+  switch words[0] {
+  case RESERVED:
+    jobId, err = strconv.ParseUint(words[1], 10, 64)
+    if err != nil {
+      return
+    }
+
+    var dataLen uint64
+    dataLen, err = strconv.ParseUint(words[2], 10, 64)
+    if err != nil {
+      return
+    }
+
+    data = make([]byte, dataLen+2)
+    var n int
+    n, err = i.readWriter.Read(data)
+    if err != nil {
+      return
+    }
+    if n != len(data) {
+      err = exception{fmt.Sprintf("read only %d bytes of %d", n, len(data))}
+      return
+    }
+
+    data = data[:len(data)-2]
+  default:
+    err = exception{line}
   }
 
   return

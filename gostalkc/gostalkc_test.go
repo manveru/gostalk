@@ -98,6 +98,26 @@ func init() {
         err := i.Delete(0)
         Expect(err, ToBeNil)
       })
+
+      It("cannot delete the same job twice", func() {
+        err := i.Delete(0)
+        Expect(err, ToEqual, exception{NOT_FOUND})
+      })
+
+      It("cannot reserve the job after deletion", func() {
+        jobId, buried, err := i.Put(0, 0, 0, []byte("hi"))
+        Expect(err, ToBeNil)
+        Expect(jobId, ToEqual, uint64(1))
+        Expect(buried, ToEqual, false)
+
+        err = i.Delete(1)
+        Expect(err, ToBeNil)
+
+        id, data, err := i.ReserveWithTimeout(1)
+        Expect(err, ToEqual, exception{TIMED_OUT})
+        Expect(id, ToBeNil)
+        Expect(string(data), ToEqual, "")
+      })
     })
 
     Describe("Touch", func() {
