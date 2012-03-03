@@ -20,6 +20,7 @@ type Instance interface {
   ListTubesWatched() ([]string, error)
   Delete(jobId uint64) error
   Touch(jobId uint64) error
+  StatsJob(jobId uint64) (map[string]interface{}, error)
   ReserveWithTimeout(int) (uint64, []byte, error)
   Put(uint32, uint64, uint64, []byte) (uint64, bool, error)
   Ignore(tubeName string) (uint64, error)
@@ -33,6 +34,8 @@ type instance struct {
 
 const (
   BURIED        = "BURIED"
+  USING         = "USING"
+  OK            = "OK"
   DELETED       = "DELETED"
   DRAINING      = "DRAINING"
   TIMED_OUT     = "TIMED_OUT"
@@ -57,18 +60,17 @@ const (
   msgReserveWithTimeout = "reserve-with-timeout %d\r\n"
   msgTouch              = "touch %d\r\n"
   msgWatch              = "watch %s\r\n"
+  msgStatsJob           = "stats-job %d\r\n"
 )
 
 var (
   logger = log.New(os.Stdout, "stalkc ", log.LstdFlags)
 )
 
-type exception struct {
-  msg string
-}
+type Exception string
 
-func (be exception) Error() string {
-  return be.msg
+func (e Exception) Error() string {
+  return string(e)
 }
 
 func Dial(hostAndPort string) (i Instance, err error) {
@@ -99,15 +101,15 @@ func newInstance(conn net.Conn) (i Instance) {
 func (i *instance) Watch(tubeName string) (err error) {
   logger.Println("Watch", tubeName)
 
-  err = i.write(fmt.Sprintf(msgWatch, tubeName))
+  words, err := i.wordsCmd(fmt.Sprintf(msgWatch, tubeName))
   if err != nil {
     return
   }
 
-  line, err := i.readLine()
-
-  if line != "OK" {
-    err = exception{line}
+  switch words[0] {
+  case OK:
+  default:
+    err = Exception(words[0])
   }
 
   return
@@ -115,60 +117,28 @@ func (i *instance) Watch(tubeName string) (err error) {
 
 func (i *instance) ListTubes() (tubes []string, err error) {
   logger.Println("ListTubes")
+  err = i.yamlCmd(msgListTubes, &tubes)
+  return
+}
 
-  err = i.write(msgListTubes)
-  if err != nil {
-    return
-  }
-
-  line, err := i.readLine()
-  if err != nil {
-    return
-  }
-
-  words := strings.Split(line, " ")
-
-  if words[0] != "OK" {
-    return nil, exception{words[0]}
-  }
-
-  bodyLen, err := strconv.ParseInt(words[1], 10, 64)
-  if err != nil {
-    return
-  }
-
-  rawYaml := make([]byte, bodyLen+2)
-  n, err := i.readWriter.Read(rawYaml)
-  if err != nil {
-    return
-  }
-  if n != len(rawYaml) {
-    err = exception{fmt.Sprintf("read only %d bytes of %d", n, len(rawYaml))}
-  }
-
-  dest := make([]string, 0)
-  err = goyaml.Unmarshal(rawYaml[:len(rawYaml)-1], &dest)
-  return dest, err
+func (i *instance) ListTubesWatched() (tubeNames []string, err error) {
+  logger.Println("ListTubesWatched")
+  err = i.yamlCmd(msgListTubesWatched, &tubeNames)
+  return
 }
 
 func (i *instance) ListTubeUsed() (tubeName string, err error) {
   logger.Println("ListTubeUsed")
-
-  err = i.write(msgListTubeUsed)
+  words, err := i.wordsCmd(msgListTubeUsed)
   if err != nil {
     return
   }
 
-  line, err := i.readLine()
-  if err != nil {
-    return
-  }
-
-  words := strings.Split(line, " ")
-  if words[0] == "USING" {
+  switch words[0] {
+  case USING:
     tubeName = words[1]
-  } else {
-    err = exception{words[0]}
+  default:
+    err = Exception(words[0])
   }
 
   return
@@ -176,78 +146,28 @@ func (i *instance) ListTubeUsed() (tubeName string, err error) {
 
 func (i *instance) Ignore(tubeName string) (tubesLeft uint64, err error) {
   logger.Println("ListTubesWatched")
-
-  err = i.write(fmt.Sprintf(msgIgnore, tubeName))
+  words, err := i.wordsCmd(fmt.Sprintf(msgIgnore, tubeName))
   if err != nil {
     return
   }
-
-  line, err := i.readLine()
-  if err != nil {
-    return
-  }
-
-  words := strings.Split(line, " ")
 
   switch words[0] {
   case WATCHING:
     return strconv.ParseUint(words[1], 10, 64)
   case NOT_IGNORED:
-    err = exception{NOT_IGNORED}
+    err = Exception(NOT_IGNORED)
   default:
-    err = exception{line}
+    err = Exception(words[0])
   }
 
   return
 }
 
-func (i *instance) ListTubesWatched() (tubeNames []string, err error) {
-  logger.Println("ListTubesWatched")
-
-  err = i.write(msgListTubesWatched)
-  if err != nil {
-    return
-  }
-
-  line, err := i.readLine()
-  if err != nil {
-    return
-  }
-
-  words := strings.Split(line, " ")
-
-  if words[0] != "OK" {
-    return nil, exception{words[0]}
-  }
-
-  bodyLen, err := strconv.ParseInt(words[1], 10, 64)
-  if err != nil {
-    return
-  }
-
-  rawYaml := make([]byte, bodyLen+2)
-  n, err := i.readWriter.Read(rawYaml)
-  if err != nil {
-    return
-  }
-  if n != len(rawYaml) {
-    err = exception{fmt.Sprintf("read only %d bytes of %d", n, len(rawYaml))}
-  }
-
-  dest := make([]string, 0)
-  err = goyaml.Unmarshal(rawYaml[:len(rawYaml)-1], &dest)
-  return dest, err
-}
-
 func (i *instance) Put(priority uint32, delay, ttr uint64, data []byte) (jobId uint64, buried bool, err error) {
-  i.write(fmt.Sprintf(msgPut, priority, delay, ttr, len(data), data))
-
-  line, err := i.readLine()
+  words, err := i.wordsCmd(fmt.Sprintf(msgPut, priority, delay, ttr, len(data), data))
   if err != nil {
     return
   }
-
-  words := strings.Split(line, " ")
 
   switch words[0] {
   case INSERTED:
@@ -256,11 +176,11 @@ func (i *instance) Put(priority uint32, delay, ttr uint64, data []byte) (jobId u
     jobId, err = strconv.ParseUint(words[1], 10, 64)
     buried = true
   case EXPECTED_CRLF:
-    err = exception{EXPECTED_CRLF}
+    err = Exception(EXPECTED_CRLF)
   case JOB_TOO_BIG:
-    err = exception{JOB_TOO_BIG}
+    err = Exception(JOB_TOO_BIG)
   case DRAINING:
-    err = exception{DRAINING}
+    err = Exception(DRAINING)
   }
 
   return
@@ -296,7 +216,7 @@ func (i *instance) Reserve() (jobId uint64, data []byte, err error) {
       return
     }
     if n != len(data) {
-      err = exception{fmt.Sprintf("read only %d bytes of %d", n, len(data))}
+      err = Exception(fmt.Sprintf("read only %d bytes of %d", n, len(data)))
       return
     }
 
@@ -307,14 +227,10 @@ func (i *instance) Reserve() (jobId uint64, data []byte, err error) {
 }
 
 func (i *instance) ReserveWithTimeout(timeout int) (jobId uint64, data []byte, err error) {
-  i.write(fmt.Sprintf(msgReserveWithTimeout, timeout))
-
-  line, err := i.readLine()
+  words, err := i.wordsCmd(fmt.Sprintf(msgReserveWithTimeout, timeout))
   if err != nil {
     return
   }
-
-  words := strings.Split(line, " ")
 
   switch words[0] {
   case RESERVED:
@@ -336,37 +252,18 @@ func (i *instance) ReserveWithTimeout(timeout int) (jobId uint64, data []byte, e
       return
     }
     if n != len(data) {
-      err = exception{fmt.Sprintf("read only %d bytes of %d", n, len(data))}
+      err = Exception(fmt.Sprintf("read only %d bytes of %d", n, len(data)))
       return
     }
 
     data = data[:len(data)-2]
   default:
-    err = exception{line}
+    err = Exception(words[0])
   }
 
   return
 }
 
-/*
-The "touch" command allows a worker to request more time to work on a job.
-This is useful for jobs that potentially take a long time, but you still want
-the benefits of a TTR pulling a job away from an unresponsive worker.  A worker
-may periodically tell the server that it's still alive and processing a job
-(e.g. it may do this on DEADLINE_SOON).
-
-The touch command looks like this:
-
-touch <id>\r\n
-
- - <id> is the ID of a job reserved by the current connection.
-
-There are two possible responses:
-
- - "TOUCHED\r\n" to indicate success.
-
- - "NOT_FOUND\r\n" if the job does not exist or is not reserved by the client.
-*/
 func (i *instance) Touch(jobId uint64) (err error) {
   i.write(fmt.Sprintf(msgTouch, jobId))
 
@@ -379,7 +276,7 @@ func (i *instance) Touch(jobId uint64) (err error) {
   case TOUCHED:
     return
   case NOT_FOUND:
-    err = exception{NOT_FOUND}
+    err = Exception(NOT_FOUND)
   }
 
   return
@@ -397,7 +294,12 @@ func (i *instance) Delete(jobId uint64) (err error) {
     return
   }
 
-  return exception{line}
+  return Exception(line)
+}
+
+func (i *instance) StatsJob(jobId uint64) (stats map[string]interface{}, err error) {
+  err = i.yamlCmd(fmt.Sprintf(msgStatsJob, jobId), &stats)
+  return
 }
 
 func (i *instance) write(line string) (err error) {
@@ -406,7 +308,7 @@ func (i *instance) write(line string) (err error) {
   i.readWriter.Flush()
 
   if err == nil && n != len(line) {
-    err = exception{fmt.Sprintf("wrote only %d bytes of %d", n, len(line))}
+    err = Exception(fmt.Sprintf("wrote only %d bytes of %d", n, len(line)))
   }
 
   return
@@ -426,4 +328,55 @@ func (i *instance) readLine() (line string, err error) {
     lineBuf.Write(linePart)
   }
   return lineBuf.String(), nil
+}
+
+func (i *instance) wordsCmd(command string) (words []string, err error) {
+  err = i.write(command)
+  if err != nil {
+    return
+  }
+
+  line, err := i.readLine()
+  if err != nil {
+    return
+  }
+
+  words = strings.Split(line, " ")
+
+  return
+}
+
+func (i *instance) yamlCmd(command string, dest interface{}) (err error) {
+  err = i.write(command)
+  if err != nil {
+    return
+  }
+
+  line, err := i.readLine()
+  if err != nil {
+    return
+  }
+
+  words := strings.Split(line, " ")
+
+  if words[0] != "OK" {
+    return Exception(words[0])
+  }
+
+  bodyLen, err := strconv.ParseInt(words[1], 10, 64)
+  if err != nil {
+    return
+  }
+
+  rawYaml := make([]byte, bodyLen+2)
+  n, err := i.readWriter.Read(rawYaml)
+  if err != nil {
+    return
+  }
+  if n != len(rawYaml) {
+    err = Exception(fmt.Sprintf("read only %d bytes of %d", n, len(rawYaml)))
+  }
+
+  err = goyaml.Unmarshal(rawYaml[:len(rawYaml)-1], dest)
+  return err
 }

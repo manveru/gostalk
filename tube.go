@@ -1,9 +1,5 @@
 package gostalk
 
-import (
-  "container/heap"
-)
-
 type jobReserveRequest struct {
   success chan *Job
   cancel  chan bool
@@ -71,17 +67,24 @@ func (tube *Tube) handleDemand() {
 }
 
 func (tube *Tube) reserve() (job *Job) {
-  job = heap.Pop(tube.ready).(*Job)
+  job = tube.ready.getJob()
   tube.statReady = tube.ready.Len()
-  heap.Push(tube.reserved, job)
+  tube.reserved.putJob(job)
+
+  job.state = jobReservedState
+  job.jobHolder = tube.reserved
+
   tube.statReserved = tube.reserved.Len()
   return
 }
 
 func (tube *Tube) put(job *Job) {
-  heap.Push(tube.ready, job)
-  job.state = jobReady
+  tube.ready.putJob(job)
+
+  job.state = jobReadyState
   job.tube = tube
+  job.jobHolder = tube.ready
+
   tube.statReady = tube.ready.Len()
   if job.priority < 1024 {
     tube.statUrgent += 1
@@ -89,4 +92,5 @@ func (tube *Tube) put(job *Job) {
 }
 
 func (tube *Tube) delete(job *Job) {
+  job.jobHolder.deleteJob(job)
 }

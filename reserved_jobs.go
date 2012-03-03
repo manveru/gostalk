@@ -1,42 +1,38 @@
 package gostalk
 
 import (
-  "container/heap"
+  "code.google.com/p/go-priority-queue/prio"
 )
 
-type reservedJobs []*Job
+type reservedJobsItem Job
+
+func (i *reservedJobsItem) Less(j prio.Interface) bool {
+  return i.reserveEndsAt.Before(j.(*reservedJobsItem).reserveEndsAt)
+}
+
+func (i *reservedJobsItem) Index(n int) {
+  i.index = n
+}
+
+type reservedJobs struct {
+  prio.Queue
+}
 
 func newReservedJobs() (jobs *reservedJobs) {
-  jobs = &reservedJobs{}
-  heap.Init(jobs)
+  return &reservedJobs{}
+}
+
+func (jobs *reservedJobs) getJob() (job *Job) {
+  job = (*Job)(jobs.Pop().(*reservedJobsItem))
+  job.jobHolder = nil
   return
-}
-
-func (jobs reservedJobs) Len() int {
-  return len(jobs)
-}
-
-func (jobs *reservedJobs) Less(a, b int) bool {
-  return (*jobs)[a].reserveEndsAt.Before((*jobs)[b].reserveEndsAt)
-}
-
-func (jobs *reservedJobs) Pop() (job interface{}) {
-  *jobs, job = (*jobs)[:jobs.Len()-1], (*jobs)[jobs.Len()-1]
-  return
-}
-
-func (jobs *reservedJobs) Push(job interface{}) {
-  *jobs = append(*jobs, job.(*Job))
-}
-
-func (jobs *reservedJobs) Swap(a, b int) {
-  (*jobs)[a], (*jobs)[b] = (*jobs)[b], (*jobs)[a]
-}
-
-func (jobs *reservedJobs) getJob() *Job {
-  return heap.Pop(jobs).(*Job)
 }
 
 func (jobs *reservedJobs) putJob(job *Job) {
-  heap.Push(jobs, job)
+  job.jobHolder = jobs
+  jobs.Push((*reservedJobsItem)(job))
+}
+
+func (jobs *reservedJobs) deleteJob(job *Job) {
+  jobs.Remove(job.index)
 }

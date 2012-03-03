@@ -296,10 +296,63 @@ func (cmd *Cmd) stats() {
     pf("goyaml.Marshal : %#v", err)
     cmd.respond(MSG_INTERNAL_ERROR)
   }
+  // FIXME: needs to send OK <bytes>
   cmd.respond(string(yaml))
 }
 func (cmd *Cmd) statsJob() {
-  cmd.respond(MSG_INTERNAL_ERROR)
+  cmd.assertNumberOfArguments(1)
+
+  jobId := JobId(cmd.getInt(0))
+
+  job, found := cmd.server.findJob(jobId)
+
+  if !found {
+    cmd.respond(MSG_NOT_FOUND)
+    return
+  }
+
+  stats := &map[string]interface{}{
+    "id":        job.id,
+    "tube":      job.tube.name,
+    "state":     job.state,
+    "pri":       job.priority,
+    "age":       time.Since(job.createdAt),
+    "time-left": 0, // TODO
+    "file":      0, // TODO
+    "reserves":  job.reserveCount,
+    "releases":  job.releaseCount,
+    "timeouts":  job.timeoutCount,
+    "buries":    job.buryCount,
+    "kicks":     job.kickCount,
+  }
+
+  yaml, err := goyaml.Marshal(stats)
+  if err != nil {
+    pf("goyaml.Marshal : %#v", err)
+    cmd.respond(MSG_INTERNAL_ERROR)
+  }
+
+  cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
+
+  /*
+     - "state" is "ready" or "delayed" or "reserved" or "buried"
+     - "pri" is the priority value set by the put, release, or bury commands.
+     - "age" is the time in seconds since the put command that created this job.
+     - "time-left" is the number of seconds left until the server puts this job
+       into the ready queue. This number is only meaningful if the job is
+       reserved or delayed. If the job is reserved and this amount of time
+       elapses before its state changes, it is considered to have timed out.
+     - "file" is the number of the earliest binlog file containing this job.
+       If -b wasn't used, this will be 0.
+     - "reserves" is the number of times this job has been reserved.
+     - "timeouts" is the number of times this job has timed out during a
+       reservation.
+     - "releases" is the number of times a client has released this job from a
+       reservation.
+     - "buries" is the number of times this job has been buried.
+     - "kicks" is the number of times this job has been kicked.
+      cmd.respond(MSG_INTERNAL_ERROR)
+  */
 }
 func (cmd *Cmd) statsTube() {
   cmd.respond(MSG_INTERNAL_ERROR)

@@ -66,7 +66,7 @@ func init() {
 
       It("cannot remove the last tube from the watch list", func() {
         amount, err := i.Ignore("testing")
-        Expect(err, ToEqual, exception{NOT_IGNORED})
+        Expect(err, ToEqual, Exception(NOT_IGNORED))
         Expect(amount, ToEqual, uint64(0))
 
         tubes, err := i.ListTubesWatched()
@@ -81,49 +81,89 @@ func init() {
         Expect(err, ToBeNil)
         Expect(jobId, ToEqual, uint64(0))
         Expect(buried, ToEqual, false)
+
+        i.Delete(jobId)
+        Expect(err, ToBeNil)
       })
+    })
+
+    Describe("StatsJob", func() {
+      jobId, buried, err := i.Put(42, 0, 3, []byte("hi"))
+      Expect(err, ToBeNil)
+      Expect(jobId, ToEqual, uint64(1))
+      Expect(buried, ToEqual, false)
+
+      It("provides information about a job", func() {
+        stats, err := i.StatsJob(jobId)
+        Expect(err, ToBeNil)
+        Expect(stats["id"], ToEqual, 1)
+        Expect(stats["tube"], ToEqual, "default")
+        Expect(stats["state"], ToEqual, "ready")
+        Expect(stats["pri"], ToEqual, 42)
+        Expect(stats["age"], ToNotBeNil) // TODO: do at least a rough delta compare
+        Expect(stats["age"], ToNotBeNil)
+      })
+
+      i.Delete(jobId)
+      Expect(err, ToBeNil)
     })
 
     Describe("Reserve", func() {
       It("receives a job", func() {
+        jobId, _, err := i.Put(1, 0, 3, []byte("hi"))
+        Expect(err, ToBeNil)
+
         id, data, err := i.Reserve()
         Expect(err, ToBeNil)
-        Expect(id, ToEqual, uint64(0))
+        Expect(id, ToEqual, jobId)
         Expect(string(data), ToEqual, "hi")
+
+        err = i.Delete(jobId)
+        Expect(err, ToBeNil)
       })
     })
 
     Describe("Delete", func() {
       It("deletes a job", func() {
-        err := i.Delete(0)
+        jobId, buried, err := i.Put(0, 0, 0, []byte("hi"))
         Expect(err, ToBeNil)
-      })
+        Expect(buried, ToEqual, false)
 
-      It("cannot delete the same job twice", func() {
-        err := i.Delete(0)
-        Expect(err, ToEqual, exception{NOT_FOUND})
+        err = i.Delete(jobId)
+        Expect(err, ToBeNil)
+
+        It("cannot delete the same job twice", func() {
+          err := i.Delete(jobId)
+          Expect(err, ToEqual, Exception(NOT_FOUND))
+        })
       })
 
       It("cannot reserve the job after deletion", func() {
         jobId, buried, err := i.Put(0, 0, 0, []byte("hi"))
         Expect(err, ToBeNil)
-        Expect(jobId, ToEqual, uint64(1))
         Expect(buried, ToEqual, false)
 
-        err = i.Delete(1)
+        err = i.Delete(jobId)
         Expect(err, ToBeNil)
 
-        id, data, err := i.ReserveWithTimeout(1)
-        Expect(err, ToEqual, exception{TIMED_OUT})
-        Expect(id, ToBeNil)
-        Expect(string(data), ToEqual, "")
+        _, _, err = i.ReserveWithTimeout(0)
+        Expect(err, ToEqual, Exception(TIMED_OUT))
       })
     })
 
     Describe("Touch", func() {
       It("tells the server to give us more time", func() {
-        err := i.Touch(0)
+        jobId, buried, err := i.Put(0, 0, 2, []byte("hi"))
         Expect(err, ToBeNil)
+        Expect(buried, ToEqual, false)
+
+        err = i.Touch(jobId)
+        Expect(err, ToBeNil)
+
+        id, data, err := i.Reserve()
+        Expect(err, ToBeNil)
+        Expect(id, ToEqual, jobId)
+        Expect(string(data), ToEqual, "hi")
       })
     })
   })

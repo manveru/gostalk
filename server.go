@@ -77,6 +77,11 @@ func (server *Server) findOrCreateTube(name string) *Tube {
   return found
 }
 
+func (server *Server) findJob(id JobId) (job *Job, found bool) {
+  job, found = server.jobs[id]
+  return
+}
+
 func (server *Server) deleteJob(id JobId) (deleted bool) {
   job, found := server.jobs[id]
   if found {
