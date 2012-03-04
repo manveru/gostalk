@@ -88,6 +88,7 @@ func (tube *Tube) reserve() (job *Job) {
   tube.reserved.putJob(job)
 
   job.state = jobReservedState
+  job.reserveEndsAt = time.Now().Add(job.timeToReserve)
   job.jobHolder = tube.reserved
   job.reserveCount += 1
 

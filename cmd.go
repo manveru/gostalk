@@ -39,7 +39,17 @@ func (cmd *Cmd) assertNumberOfArguments(n int) {
   }
 }
 
-func (cmd *Cmd) getInt(idx int) (to uint64) {
+func (cmd *Cmd) getInt(idx int) (to int64) {
+  from := cmd.args[idx]
+  to, err := strconv.ParseInt(from, 10, 64)
+  if err != nil {
+    pf("cmd.getInt(%#v) : %v", from, err)
+    cmd.respond(MSG_BAD_FORMAT)
+  }
+  return
+}
+
+func (cmd *Cmd) getUint(idx int) (to uint64) {
   from := cmd.args[idx]
   to, err := strconv.ParseUint(from, 10, 64)
   if err != nil {
@@ -317,7 +327,7 @@ func (cmd *Cmd) statsJob() {
     "state":     job.state,
     "pri":       job.priority,
     "age":       time.Since(job.createdAt),
-    "time-left": job.timeLeft(),
+    "time-left": job.timeLeft().Seconds(),
     "file":      0, // TODO
     "reserves":  job.reserveCount,
     "releases":  job.releaseCount,

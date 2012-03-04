@@ -178,20 +178,55 @@ func init() {
 
     Describe("Touch", func() {
       It("tells the server to give us more time", func() {
-        jobId, buried, err := i.Put(0, 0, 2, []byte("hi"))
-        Expect(err, ToBeNil)
-        Expect(buried, ToEqual, false)
-
-        err = i.Touch(jobId)
+        jobId, _, err := i.Put(52, 0, 10, []byte("hi"))
         Expect(err, ToBeNil)
 
         id, data, err := i.Reserve()
         Expect(err, ToBeNil)
         Expect(id, ToEqual, jobId)
         Expect(string(data), ToEqual, "hi")
+
+        // keep this whole until i add more tests for StatsJob
+        stats, err := i.StatsJob(jobId)
+        Expect(err, ToBeNil)
+        Expect(stats["id"].(int), ToEqual, int(jobId))
+        Expect(stats["tube"], ToEqual, "default")
+        Expect(stats["state"], ToEqual, "reserved")
+        Expect(stats["pri"], ToEqual, 52)
+        Expect(stats["age"], ToNotBeNil) // TODO: do at least a rough delta compare
+        Expect(stats["time-left"], ToBeFloatBetween, 9.99, 10.0)
+        Expect(stats["file"], ToEqual, 0)
+        Expect(stats["reserves"], ToEqual, 1)
+        Expect(stats["releases"], ToEqual, 0)
+        Expect(stats["timeouts"], ToEqual, 0)
+        Expect(stats["buries"], ToEqual, 0)
+        Expect(stats["kicks"], ToEqual, 0)
+
+        time.Sleep(100 * time.Millisecond)
+
+        stats, err = i.StatsJob(jobId)
+        Expect(err, ToBeNil)
+        Expect(stats["time-left"], ToBeFloatBetween, 9.89, 9.99)
+
+        err = i.Touch(jobId)
+        Expect(err, ToBeNil)
+
+        stats, err = i.StatsJob(jobId)
+        Expect(err, ToBeNil)
+        Expect(stats["time-left"], ToBeFloatBetween, 9.99, 9.9999)
+
+        err = i.Delete(jobId)
+        Expect(err, ToBeNil)
       })
     })
   })
+}
+
+func ToBeFloatBetween(actual, lower, upper float64) (string, bool) {
+  if actual > lower && actual < upper {
+    return "", true
+  }
+  return fmt.Sprintf("    expected: %#v\nto be between %#v and %#v\n", actual, lower, upper), false
 }
 
 // sort both actual and expected and compare them with reflect.DeepEqual.

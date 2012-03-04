@@ -40,12 +40,12 @@ type Job struct {
   jobHolder JobHolder
 }
 
-func newJob(id JobId, priority uint32, delay uint64, ttr uint64, body []byte) (job *Job) {
+func newJob(id JobId, priority uint32, delay int64, ttr int64, body []byte) (job *Job) {
   job = &Job{
     id:            id,
     priority:      priority,
     createdAt:     time.Now(),
-    timeToReserve: time.Duration(ttr),
+    timeToReserve: time.Duration(ttr * int64(time.Second)),
     body:          body,
   }
 
