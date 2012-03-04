@@ -75,6 +75,25 @@ func init() {
       })
     })
 
+    Describe("StatsTube", func() {
+      It("returns stats about a given tube", func() {
+        stats, err := i.StatsTube("testing")
+        Expect(err, ToBeNil)
+        Expect(stats["id"], ToEqual, 1)
+        Expect(stats["tube"], ToEqual, "default")
+        Expect(stats["state"], ToEqual, "ready")
+        Expect(stats["pri"], ToEqual, 42)
+        Expect(stats["age"], ToNotBeNil) // TODO: do at least a rough delta compare
+        Expect(stats["time-left"], ToEqual, 0)
+        Expect(stats["file"], ToEqual, 0)
+        Expect(stats["reserves"], ToEqual, 0)
+        Expect(stats["releases"], ToEqual, 0)
+        Expect(stats["timeouts"], ToEqual, 0)
+        Expect(stats["buries"], ToEqual, 0)
+        Expect(stats["kicks"], ToEqual, 0)
+      })
+    })
+
     Describe("Put", func() {
       It("successfully puts a new job", func() {
         jobId, buried, err := i.Put(1, 0, 0, []byte("hi"))

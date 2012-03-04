@@ -67,18 +67,23 @@ func (server *Server) runGetJobId() {
 }
 
 func (server *Server) findOrCreateTube(name string) *Tube {
-  found, ok := server.tubes[name]
+  tube, found := server.findTube(name)
 
-  if !ok {
-    found = newTube(name)
-    server.tubes[name] = found
+  if !found {
+    tube = newTube(name)
+    server.tubes[name] = tube
   }
 
-  return found
+  return tube
 }
 
 func (server *Server) findJob(id JobId) (job *Job, found bool) {
   job, found = server.jobs[id]
+  return
+}
+
+func (server *Server) findTube(name string) (tube *Tube, found bool) {
+  tube, found = server.tubes[name]
   return
 }
 
