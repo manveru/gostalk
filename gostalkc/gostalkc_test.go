@@ -101,7 +101,13 @@ func init() {
         Expect(stats["state"], ToEqual, "ready")
         Expect(stats["pri"], ToEqual, 42)
         Expect(stats["age"], ToNotBeNil) // TODO: do at least a rough delta compare
-        Expect(stats["age"], ToNotBeNil)
+        Expect(stats["time-left"], ToEqual, 0)
+        Expect(stats["file"], ToEqual, 0)
+        Expect(stats["reserves"], ToEqual, 0)
+        Expect(stats["releases"], ToEqual, 0)
+        Expect(stats["timeouts"], ToEqual, 0)
+        Expect(stats["buries"], ToEqual, 0)
+        Expect(stats["kicks"], ToEqual, 0)
       })
 
       i.Delete(jobId)

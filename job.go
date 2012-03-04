@@ -30,6 +30,12 @@ type Job struct {
   reserveEndsAt time.Time
   timeToReserve time.Duration
 
+  reserveCount int
+  releaseCount int
+  timeoutCount int
+  buryCount    int
+  kickCount    int
+
   jobHolder JobHolder
 }
 
@@ -51,6 +57,20 @@ func newJob(id JobId, priority uint32, delay uint64, ttr uint64, body []byte) (j
 
 func (job Job) reservedString() string {
   return fmt.Sprintf("RESERVED %d %d\r\n%s\r\n", job.id, len(job.body), job.body)
+}
+
+// the number of seconds left until the server puts this job into the ready
+// queue. This number is only meaningful if the job is reserved or delayed. If
+// the job is reserved and this amount of time elapses before its state
+// changes, it is considered to have timed out.
+func (job Job) timeLeft() (left time.Duration) {
+  switch job.state {
+  case jobReservedState:
+    left = job.reserveEndsAt.Sub(time.Now())
+  case jobDelayedState:
+    left = job.delayEndsAt.Sub(time.Now())
+  }
+  return
 }
 
 func (job *Job) deleteFrom(server *Server) {

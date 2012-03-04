@@ -73,6 +73,7 @@ func (tube *Tube) reserve() (job *Job) {
 
   job.state = jobReservedState
   job.jobHolder = tube.reserved
+  job.reserveCount += 1
 
   tube.statReserved = tube.reserved.Len()
   return
