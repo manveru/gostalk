@@ -87,15 +87,6 @@ func (server *Server) findTube(name string) (tube *Tube, found bool) {
   return
 }
 
-func (server *Server) deleteJob(id JobId) (deleted bool) {
-  job, found := server.jobs[id]
-  if found {
-    job.deleteFrom(server)
-    deleted = true
-  }
-  return
-}
-
 func (server *Server) accept(conn Conn) {
   defer server.acceptFinalize(conn)
   server.totalConnectionCount += 1

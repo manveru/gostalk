@@ -4,6 +4,8 @@ import (
   "fmt"
   . "github.com/manveru/gobdd"
   "gostalk"
+  "os"
+  "os/signal"
   "reflect"
   "sort"
   "testing"
@@ -14,6 +16,14 @@ func TestEverything(t *testing.T) {}
 
 func init() {
   defer PrintSpecReport()
+
+  go func() {
+    c := make(chan os.Signal)
+    signal.Notify(c)
+    for sig := range c {
+      panic(sig)
+    }
+  }()
 
   running := make(chan bool)
   go gostalk.Start("127.0.0.1:40402", running)
@@ -217,6 +227,36 @@ func init() {
 
         err = i.Delete(jobId)
         Expect(err, ToBeNil)
+      })
+    })
+
+    Describe("Bury", func() {
+      It("Puts a reserved job into buried state", func() {
+        jobId, _, err := i.Put(52, 0, 10, []byte("hi"))
+        Expect(err, ToBeNil)
+
+        id, data, err := i.Reserve()
+        Expect(err, ToBeNil)
+        Expect(id, ToEqual, jobId)
+        Expect(string(data), ToEqual, "hi")
+
+        err = i.Bury(jobId)
+        Expect(err, ToBeNil)
+
+        stats, err := i.StatsJob(jobId)
+        Expect(err, ToBeNil)
+        Expect(stats["id"].(int), ToEqual, int(jobId))
+        Expect(stats["tube"], ToEqual, "default")
+        Expect(stats["state"], ToEqual, "reserved")
+        Expect(stats["pri"], ToEqual, 52)
+        Expect(stats["age"], ToNotBeNil) // TODO: do at least a rough delta compare
+        Expect(stats["time-left"], ToBeFloatBetween, 9.99, 10.0)
+        Expect(stats["file"], ToEqual, 0)
+        Expect(stats["reserves"], ToEqual, 1)
+        Expect(stats["releases"], ToEqual, 0)
+        Expect(stats["timeouts"], ToEqual, 0)
+        Expect(stats["buries"], ToEqual, 1)
+        Expect(stats["kicks"], ToEqual, 0)
       })
     })
   })

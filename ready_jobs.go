@@ -30,13 +30,19 @@ func (jobs *readyJobs) getJob() (job *Job) {
 
 func (jobs *readyJobs) putJob(job *Job) {
   job.jobHolder = jobs
+  job.state = jobReadyState
   jobs.Push((*readyJobsItem)(job))
 }
 
 func (jobs *readyJobs) deleteJob(job *Job) {
   jobs.Remove(job.index)
+  job.jobHolder = nil
 }
 
 func (jobs *readyJobs) touchJob(job *Job) {
-  // nothing to do here
+}
+
+func (jobs *readyJobs) buryJob(job *Job) {
+  jobs.deleteJob(job)
+  job.tube.buried.putJob(job)
 }

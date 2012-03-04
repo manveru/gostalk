@@ -5,6 +5,7 @@ import (
 )
 
 type jobReserveRequest struct {
+  client  *Client
   success chan *Job
   cancel  chan bool
 }
@@ -20,6 +21,7 @@ type Tube struct {
   jobSupply chan *Job
   jobDelete chan *Job
   jobTouch  chan *Job
+  jobBury   chan *Job
 
   pauseStartedAt time.Time
   pauseEndsAt    time.Time
@@ -45,6 +47,7 @@ func newTube(name string) (tube *Tube) {
     jobSupply: make(chan *Job),
     jobDelete: make(chan *Job),
     jobTouch:  make(chan *Job),
+    jobBury:   make(chan *Job),
   }
 
   go tube.handleDemand()
@@ -56,6 +59,8 @@ func (tube *Tube) handleDemand() {
   for {
     if tube.ready.Len() > 0 {
       select {
+      case job := <-tube.jobBury:
+        tube.bury(job)
       case job := <-tube.jobDelete:
         tube.delete(job)
       case job := <-tube.jobSupply:
@@ -64,13 +69,15 @@ func (tube *Tube) handleDemand() {
         tube.touch(job)
       case request := <-tube.jobDemand:
         select {
-        case request.success <- tube.reserve():
+        case request.success <- tube.reserve(request.client):
         case <-request.cancel:
           request.cancel <- true // propagate to the other tubes
         }
       }
     } else {
       select {
+      case job := <-tube.jobBury:
+        tube.bury(job)
       case job := <-tube.jobDelete:
         tube.delete(job)
       case job := <-tube.jobTouch:
@@ -82,11 +89,12 @@ func (tube *Tube) handleDemand() {
   }
 }
 
-func (tube *Tube) reserve() (job *Job) {
+func (tube *Tube) reserve(client *Client) (job *Job) {
   job = tube.ready.getJob()
   tube.statReady = tube.ready.Len()
   tube.reserved.putJob(job)
 
+  job.client = client
   job.state = jobReservedState
   job.reserveEndsAt = time.Now().Add(job.timeToReserve)
   job.jobHolder = tube.reserved
@@ -99,7 +107,6 @@ func (tube *Tube) reserve() (job *Job) {
 func (tube *Tube) put(job *Job) {
   tube.ready.putJob(job)
 
-  job.state = jobReadyState
   job.tube = tube
   job.jobHolder = tube.ready
 
@@ -111,6 +118,13 @@ func (tube *Tube) put(job *Job) {
 
 func (tube *Tube) delete(job *Job) {
   job.jobHolder.deleteJob(job)
+}
+
+func (tube *Tube) bury(job *Job) {
+  job.jobHolder.buryJob(job)
+  job.buryCount += 1
+  tube.statBuried = tube.buried.Len()
+  job.client = nil
 }
 
 func (tube *Tube) touch(job *Job) {

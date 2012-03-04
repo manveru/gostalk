@@ -59,16 +59,60 @@ func (cmd *Cmd) getUint(idx int) (to uint64) {
   return
 }
 
+/*
+func (server *Server) deleteJob(id JobId) (deleted bool) {
+  job, found := server.jobs[id]
+  if found {
+    job.deleteFrom(server)
+    deleted = true
+  }
+  return
+}
+
+func (server *Server) buryJob(id JobId) (buried bool) {
+  job, found = := server.jobs[id]
+  if found {
+    job.bury()
+    buried = true
+  }
+  return
+}
+*/
+
 func (cmd *Cmd) bury() {
-  cmd.respond(MSG_INTERNAL_ERROR)
+  cmd.assertNumberOfArguments(1)
+  jobId := JobId(cmd.getUint(0))
+
+  job, found := cmd.server.jobs[jobId]
+  if !found || job.state != jobReservedState || job.client != cmd.client {
+    cmd.respond(MSG_NOT_FOUND)
+    return
+  }
+
+  job.bury()
+  cmd.respond(MSG_BURIED)
 }
 
 func (cmd *Cmd) delete() {
   cmd.assertNumberOfArguments(1)
-  jobId := cmd.getInt(0)
-  if cmd.server.deleteJob(JobId(jobId)) {
+  jobId := JobId(cmd.getUint(0))
+
+  job, found := cmd.server.jobs[jobId]
+  if !found {
+    cmd.respond(MSG_NOT_FOUND)
+    return
+  }
+
+  switch job.state {
+  case jobReservedState:
+    if job.client == cmd.client {
+      job.deleteFrom(cmd.server)
+      cmd.respond(MSG_DELETED)
+    }
+  case jobBuriedState, jobDelayedState, jobReadyState:
+    job.deleteFrom(cmd.server)
     cmd.respond(MSG_DELETED)
-  } else {
+  default:
     cmd.respond(MSG_NOT_FOUND)
   }
 }
@@ -202,13 +246,14 @@ func (cmd *Cmd) quit() {
   cmd.closeConn <- true
 }
 
-func reserveCommon(tubes map[string]*Tube) *jobReserveRequest {
+func (cmd *Cmd) reserveCommon() *jobReserveRequest {
   request := &jobReserveRequest{
+    client:  cmd.client,
     success: make(chan *Job),
     cancel:  make(chan bool, 1),
   }
 
-  for _, tube := range tubes {
+  for _, tube := range cmd.client.watchedTubes {
     go func(t *Tube, r *jobReserveRequest) {
       select {
       case t.jobDemand <- r:
@@ -225,7 +270,7 @@ func (cmd *Cmd) reserve() {
   cmd.assertNumberOfArguments(0)
 
   cmd.client.isWorker = true
-  request := reserveCommon(cmd.client.watchedTubes)
+  request := cmd.reserveCommon()
   job := <-request.success
   request.cancel <- true
   cmd.respond(job.reservedString())
@@ -239,7 +284,7 @@ func (cmd *Cmd) reserveWithTimeout() {
   }
 
   cmd.client.isWorker = true
-  request := reserveCommon(cmd.client.watchedTubes)
+  request := cmd.reserveCommon()
 
   select {
   case job := <-request.success:

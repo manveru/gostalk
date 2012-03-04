@@ -31,15 +31,22 @@ func (jobs *reservedJobs) getJob() (job *Job) {
 
 func (jobs *reservedJobs) putJob(job *Job) {
   job.jobHolder = jobs
+  job.state = jobReservedState
   jobs.Push((*reservedJobsItem)(job))
 }
 
 func (jobs *reservedJobs) deleteJob(job *Job) {
   jobs.Remove(job.index)
+  job.jobHolder = nil
 }
 
 func (jobs *reservedJobs) touchJob(job *Job) {
   jobs.Remove(job.index)
   job.reserveEndsAt = time.Now().Add(job.timeToReserve)
   jobs.Push((*reservedJobsItem)(job))
+}
+
+func (jobs *reservedJobs) buryJob(job *Job) {
+  jobs.deleteJob(job)
+  job.tube.buried.putJob(job)
 }

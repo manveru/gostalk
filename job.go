@@ -15,6 +15,7 @@ const (
 type JobHolder interface {
   deleteJob(*Job)
   touchJob(*Job)
+  buryJob(*Job)
 }
 
 type JobId uint64
@@ -25,17 +26,12 @@ type Job struct {
   body     []byte
   tube     *Tube
   index    int
+  client   *Client
 
-  createdAt     time.Time
-  delayEndsAt   time.Time
-  reserveEndsAt time.Time
-  timeToReserve time.Duration
+  createdAt, delayEndsAt, reserveEndsAt time.Time
+  timeToReserve                         time.Duration
 
-  reserveCount int
-  releaseCount int
-  timeoutCount int
-  buryCount    int
-  kickCount    int
+  reserveCount, releaseCount, timeoutCount, buryCount, kickCount int
 
   jobHolder JobHolder
 }
@@ -77,6 +73,10 @@ func (job Job) timeLeft() (left time.Duration) {
 func (job *Job) deleteFrom(server *Server) {
   delete(server.jobs, job.id)
   job.tube.jobDelete <- job
+}
+
+func (job *Job) bury() {
+  job.tube.jobBury <- job
 }
 
 func (job *Job) touch() {

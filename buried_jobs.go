@@ -1,9 +1,5 @@
 package gostalk
 
-import (
-  "container/list"
-)
-
 /*
 The bury command puts a job into the "buried" state. Buried jobs are put into a
 FIFO linked list and will not be touched by the server again until a client
@@ -24,10 +20,18 @@ There are two possible responses:
  - "NOT_FOUND\r\n" if the job does not exist or is not reserved by the client.
 */
 
-type buriedJobs struct {
-  jobs *list.List
-}
+type buriedJobs []*Job
 
 func newBuriedJobs() (jobs *buriedJobs) {
-  return &buriedJobs{list.New()}
+  return &buriedJobs{}
+}
+
+func (jobs *buriedJobs) putJob(job *Job) {
+}
+
+func (jobs *buriedJobs) getJob() {
+}
+
+func (jobs *buriedJobs) Len() int {
+  return len(*jobs)
 }

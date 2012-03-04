@@ -16,6 +16,7 @@ import (
 type Instance interface {
   Delete(jobId uint64) (err error)
   Ignore(tubeName string) (tubesLeft uint64, err error)
+  Bury(jobId uint64) (err error)
   ListTubes() (tubeNames []string, err error)
   ListTubesWatched() (tubeNames []string, err error)
   ListTubeUsed() (tubeName string, err error)
@@ -59,6 +60,7 @@ const (
   msgPut                = "put %d %d %d %d\r\n%s\r\n"
   msgReserve            = "reserve\r\n"
   msgReserveWithTimeout = "reserve-with-timeout %d\r\n"
+  msgBury               = "bury %d\r\n"
   msgStatsJob           = "stats-job %d\r\n"
   msgStatsTube          = "stats-tube %s\r\n"
   msgTouch              = "touch %d\r\n"
@@ -101,8 +103,6 @@ func newInstance(conn net.Conn) (i Instance) {
 }
 
 func (i *instance) Watch(tubeName string) (err error) {
-  logger.Println("Watch", tubeName)
-
   words, err := i.wordsCmd(fmt.Sprintf(msgWatch, tubeName))
   if err != nil {
     return
@@ -117,20 +117,32 @@ func (i *instance) Watch(tubeName string) (err error) {
   return
 }
 
+func (i *instance) Bury(jobId uint64) (err error) {
+  words, err := i.wordsCmd(fmt.Sprintf(msgBury, jobId))
+  if err != nil {
+    return
+  }
+
+  switch words[0] {
+  case BURIED:
+  default:
+    err = Exception(words[0])
+  }
+
+  return
+}
+
 func (i *instance) ListTubes() (tubes []string, err error) {
-  logger.Println("ListTubes")
   err = i.yamlCmd(msgListTubes, &tubes)
   return
 }
 
 func (i *instance) ListTubesWatched() (tubeNames []string, err error) {
-  logger.Println("ListTubesWatched")
   err = i.yamlCmd(msgListTubesWatched, &tubeNames)
   return
 }
 
 func (i *instance) ListTubeUsed() (tubeName string, err error) {
-  logger.Println("ListTubeUsed")
   words, err := i.wordsCmd(msgListTubeUsed)
   if err != nil {
     return
@@ -147,7 +159,6 @@ func (i *instance) ListTubeUsed() (tubeName string, err error) {
 }
 
 func (i *instance) Ignore(tubeName string) (tubesLeft uint64, err error) {
-  logger.Println("ListTubesWatched")
   words, err := i.wordsCmd(fmt.Sprintf(msgIgnore, tubeName))
   if err != nil {
     return
@@ -262,7 +273,6 @@ func (i *instance) StatsTube(tubeName string) (stats map[string]interface{}, err
 }
 
 func (i *instance) write(line string) (err error) {
-  logger.Printf("i.write %#v\n", line)
   n, err := i.readWriter.WriteString(line)
   i.readWriter.Flush()
 
@@ -274,7 +284,6 @@ func (i *instance) write(line string) (err error) {
 }
 
 func (i *instance) readLine() (line string, err error) {
-  logger.Println("i.readLine")
   lineBuf := new(bytes.Buffer)
   var linePart []byte
   isPrefix := true
