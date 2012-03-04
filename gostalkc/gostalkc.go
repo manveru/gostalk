@@ -14,17 +14,18 @@ import (
 )
 
 type Instance interface {
-  Watch(tubeName string) error
-  ListTubes() ([]string, error)
-  ListTubeUsed() (string, error)
-  ListTubesWatched() ([]string, error)
-  Delete(jobId uint64) error
-  Touch(jobId uint64) error
-  StatsJob(jobId uint64) (map[string]interface{}, error)
-  ReserveWithTimeout(int) (uint64, []byte, error)
-  Put(uint32, uint64, uint64, []byte) (uint64, bool, error)
-  Ignore(tubeName string) (uint64, error)
-  Reserve() (uint64, []byte, error)
+  Delete(jobId uint64) (err error)
+  Ignore(tubeName string) (tubesLeft uint64, err error)
+  ListTubes() (tubeNames []string, err error)
+  ListTubesWatched() (tubeNames []string, err error)
+  ListTubeUsed() (tubeName string, err error)
+  Put(priority uint32, delay uint64, ttr uint64, jobData []byte) (jobId uint64, buried bool, err error)
+  Reserve() (jobId uint64, jobData []byte, err error)
+  ReserveWithTimeout(seconds int) (jobId uint64, jobData []byte, err error)
+  StatsJob(jobId uint64) (stats map[string]interface{}, err error)
+  StatsTube(tubeName string) (stats map[string]interface{}, err error)
+  Touch(jobId uint64) (err error)
+  Watch(tubeName string) (err error)
 }
 
 type instance struct {
@@ -34,18 +35,18 @@ type instance struct {
 
 const (
   BURIED        = "BURIED"
-  USING         = "USING"
-  OK            = "OK"
   DELETED       = "DELETED"
   DRAINING      = "DRAINING"
-  TIMED_OUT     = "TIMED_OUT"
   EXPECTED_CRLF = "EXPECTED_CRLF"
   INSERTED      = "INSERTED"
   JOB_TOO_BIG   = "JOB_TOO_BIG"
   NOT_FOUND     = "NOT_FOUND"
   NOT_IGNORED   = "NOT_IGNORED"
+  OK            = "OK"
   RESERVED      = "RESERVED"
+  TIMED_OUT     = "TIMED_OUT"
   TOUCHED       = "TOUCHED"
+  USING         = "USING"
   WATCHING      = "WATCHING"
 )
 
@@ -58,9 +59,10 @@ const (
   msgPut                = "put %d %d %d %d\r\n%s\r\n"
   msgReserve            = "reserve\r\n"
   msgReserveWithTimeout = "reserve-with-timeout %d\r\n"
+  msgStatsJob           = "stats-job %d\r\n"
+  msgStatsTube          = "stats-tube %s\r\n"
   msgTouch              = "touch %d\r\n"
   msgWatch              = "watch %s\r\n"
-  msgStatsJob           = "stats-job %d\r\n"
 )
 
 var (
@@ -186,47 +188,23 @@ func (i *instance) Put(priority uint32, delay, ttr uint64, data []byte) (jobId u
   return
 }
 
-func (i *instance) Reserve() (jobId uint64, data []byte, err error) {
-  i.write(msgReserve)
-
-  line, err := i.readLine()
+func (i *instance) Reserve() (jobId uint64, jobData []byte, err error) {
+  words, err := i.wordsCmd(msgReserve)
   if err != nil {
     return
   }
 
-  words := strings.Split(line, " ")
-
   switch words[0] {
   case RESERVED:
-    jobId, err = strconv.ParseUint(words[1], 10, 64)
-    if err != nil {
-      return
-    }
-
-    var dataLen uint64
-    dataLen, err = strconv.ParseUint(words[2], 10, 64)
-    if err != nil {
-      return
-    }
-
-    data = make([]byte, dataLen+2)
-    var n int
-    n, err = i.readWriter.Read(data)
-    if err != nil {
-      return
-    }
-    if n != len(data) {
-      err = Exception(fmt.Sprintf("read only %d bytes of %d", n, len(data)))
-      return
-    }
-
-    data = data[:len(data)-2]
+    jobId, jobData, err = i.readJob(words[1:3])
+  default:
+    err = Exception(words[0])
   }
 
   return
 }
 
-func (i *instance) ReserveWithTimeout(timeout int) (jobId uint64, data []byte, err error) {
+func (i *instance) ReserveWithTimeout(timeout int) (jobId uint64, jobData []byte, err error) {
   words, err := i.wordsCmd(fmt.Sprintf(msgReserveWithTimeout, timeout))
   if err != nil {
     return
@@ -234,29 +212,7 @@ func (i *instance) ReserveWithTimeout(timeout int) (jobId uint64, data []byte, e
 
   switch words[0] {
   case RESERVED:
-    jobId, err = strconv.ParseUint(words[1], 10, 64)
-    if err != nil {
-      return
-    }
-
-    var dataLen uint64
-    dataLen, err = strconv.ParseUint(words[2], 10, 64)
-    if err != nil {
-      return
-    }
-
-    data = make([]byte, dataLen+2)
-    var n int
-    n, err = i.readWriter.Read(data)
-    if err != nil {
-      return
-    }
-    if n != len(data) {
-      err = Exception(fmt.Sprintf("read only %d bytes of %d", n, len(data)))
-      return
-    }
-
-    data = data[:len(data)-2]
+    jobId, jobData, err = i.readJob(words[1:len(words)])
   default:
     err = Exception(words[0])
   }
@@ -265,18 +221,16 @@ func (i *instance) ReserveWithTimeout(timeout int) (jobId uint64, data []byte, e
 }
 
 func (i *instance) Touch(jobId uint64) (err error) {
-  i.write(fmt.Sprintf(msgTouch, jobId))
-
-  line, err := i.readLine()
+  words, err := i.wordsCmd(fmt.Sprintf(msgTouch, jobId))
   if err != nil {
     return
   }
 
-  switch line {
+  switch words[0] {
   case TOUCHED:
     return
-  case NOT_FOUND:
-    err = Exception(NOT_FOUND)
+  default:
+    err = Exception(words[0])
   }
 
   return
@@ -299,6 +253,11 @@ func (i *instance) Delete(jobId uint64) (err error) {
 
 func (i *instance) StatsJob(jobId uint64) (stats map[string]interface{}, err error) {
   err = i.yamlCmd(fmt.Sprintf(msgStatsJob, jobId), &stats)
+  return
+}
+
+func (i *instance) StatsTube(tubeName string) (stats map[string]interface{}, err error) {
+  err = i.yamlCmd(fmt.Sprintf(msgStatsTube, tubeName), &stats)
   return
 }
 
@@ -379,4 +338,31 @@ func (i *instance) yamlCmd(command string, dest interface{}) (err error) {
 
   err = goyaml.Unmarshal(rawYaml[:len(rawYaml)-1], dest)
   return err
+}
+
+func (i *instance) readJob(args []string) (jobId uint64, jobData []byte, err error) {
+  jobId, err = strconv.ParseUint(args[0], 10, 64)
+  if err != nil {
+    return
+  }
+
+  var jobDataLen uint64
+  jobDataLen, err = strconv.ParseUint(args[1], 10, 64)
+  if err != nil {
+    return
+  }
+
+  jobData = make([]byte, jobDataLen+2)
+  var n int
+  n, err = i.readWriter.Read(jobData)
+  if err != nil {
+    return
+  }
+  if n != len(jobData) {
+    err = Exception(fmt.Sprintf("read only %d bytes of %d", n, len(jobData)))
+    return
+  }
+
+  jobData = jobData[:len(jobData)-2]
+  return
 }

@@ -36,3 +36,7 @@ func (jobs *readyJobs) putJob(job *Job) {
 func (jobs *readyJobs) deleteJob(job *Job) {
   jobs.Remove(job.index)
 }
+
+func (jobs *readyJobs) touchJob(job *Job) {
+  // nothing to do here
+}

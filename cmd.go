@@ -346,27 +346,18 @@ func (cmd *Cmd) statsTube() {
   }
 
   stats := &map[string]interface{}{
-    "name":                tube.name,       // is the tube's name.
-    "current-jobs-urgent": tube.statUrgent, // is the number of ready jobs with priority < 1024 in this tube.
-    "current-jobs-ready":  tube.statReady,  // is the number of jobs in the ready
-    // queue in this tube.
-    "current-jobs-reserved": tube.statReserved, // is the number of jobs
-    // reserved by all clients in
-    // this tube.
-    "current-jobs-delayed": tube.statDelayed, // is the number of delayed jobs
-    // in this tube.
-    "current-jobs-buried": tube.statBuried, // is the number of buried jobs in
-    // this tube.
-    "total-jobs": tube.statTotalJobs, // is the cumulative count of jobs
-    // created in this tube in the current
-    // beanstalkd process.
-    "current-waiting": 0, // TODO: is the number of open connections that have
-    // issued a reserve command while watching this tube
-    // but not yet received a response.
-    "pause":           tube.pausedDuration(), // is the number of seconds the tube has been paused for.
-    "cmd-delete":      tube.statDeleted,      // is the cumulative number of delete commands for this tube
-    "cmd-pause-tube":  tube.statPaused,       // is the cumulative number of pause-tube commands for this tube.
-    "pause-time-left": tube.pauseTimeLeft(),  // is the number of seconds until the tube is un-paused.
+    "name":                  tube.name,             // is the tube's name.
+    "current-jobs-urgent":   tube.statUrgent,       // is the number of ready jobs with priority < 1024 in this tube.
+    "current-jobs-ready":    tube.statReady,        // is the number of jobs in the ready queue in this tube.
+    "current-jobs-reserved": tube.statReserved,     // is the number of jobs reserved by all clients in this tube.
+    "current-jobs-delayed":  tube.statDelayed,      // is the number of delayed jobs in this tube.
+    "current-jobs-buried":   tube.statBuried,       // is the number of buried jobs in this tube.
+    "total-jobs":            tube.statTotalJobs,    // is the cumulative count of jobs created in this tube in the current beanstalkd process.
+    "current-waiting":       0,                     // TODO: is the number of open connections that have issued a reserve command while watching this tube but not yet received a response.
+    "cmd-delete":            tube.statDeleted,      // is the cumulative number of delete commands for this tube
+    "cmd-pause-tube":        tube.statPaused,       // is the cumulative number of pause-tube commands for this tube.
+    "pause":                 tube.pausedDuration(), // is the number of seconds the tube has been paused for.
+    "pause-time-left":       tube.pauseTimeLeft(),  // is the number of seconds until the tube is un-paused.
   }
 
   yaml, err := goyaml.Marshal(stats)
@@ -379,7 +370,18 @@ func (cmd *Cmd) statsTube() {
   cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
 }
 func (cmd *Cmd) touch() {
-  cmd.respond(MSG_INTERNAL_ERROR)
+  cmd.assertNumberOfArguments(1)
+  jobId := JobId(cmd.getInt(0))
+
+  job, found := cmd.server.findJob(jobId)
+
+  if !found {
+    cmd.respond(MSG_NOT_FOUND)
+    return
+  }
+
+  job.touch()
+  cmd.respond(MSG_TOUCHED)
 }
 
 func (cmd *Cmd) use() {

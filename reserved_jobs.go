@@ -2,6 +2,7 @@ package gostalk
 
 import (
   "code.google.com/p/go-priority-queue/prio"
+  "time"
 )
 
 type reservedJobsItem Job
@@ -35,4 +36,10 @@ func (jobs *reservedJobs) putJob(job *Job) {
 
 func (jobs *reservedJobs) deleteJob(job *Job) {
   jobs.Remove(job.index)
+}
+
+func (jobs *reservedJobs) touchJob(job *Job) {
+  jobs.Remove(job.index)
+  job.reserveEndsAt = time.Now().Add(job.timeToReserve)
+  jobs.Push((*reservedJobsItem)(job))
 }

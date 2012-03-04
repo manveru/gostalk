@@ -14,6 +14,7 @@ const (
 
 type JobHolder interface {
   deleteJob(*Job)
+  touchJob(*Job)
 }
 
 type JobId uint64
@@ -76,4 +77,8 @@ func (job Job) timeLeft() (left time.Duration) {
 func (job *Job) deleteFrom(server *Server) {
   delete(server.jobs, job.id)
   job.tube.jobDelete <- job
+}
+
+func (job *Job) touch() {
+  job.tube.jobTouch <- job
 }

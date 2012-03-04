@@ -1,5 +1,9 @@
 package gostalk
 
+import (
+  "time"
+)
+
 type jobReserveRequest struct {
   success chan *Job
   cancel  chan bool
@@ -15,12 +19,19 @@ type Tube struct {
   jobDemand chan *jobReserveRequest
   jobSupply chan *Job
   jobDelete chan *Job
+  jobTouch  chan *Job
 
-  statUrgent   int
-  statReady    int
-  statReserved int
-  statDelayed  int
-  statBuried   int
+  pauseStartedAt time.Time
+  pauseEndsAt    time.Time
+
+  statUrgent    int
+  statReady     int
+  statReserved  int
+  statDelayed   int
+  statBuried    int
+  statTotalJobs int
+  statDeleted   int
+  statPaused    int
 }
 
 func newTube(name string) (tube *Tube) {
@@ -33,6 +44,7 @@ func newTube(name string) (tube *Tube) {
     jobDemand: make(chan *jobReserveRequest),
     jobSupply: make(chan *Job),
     jobDelete: make(chan *Job),
+    jobTouch:  make(chan *Job),
   }
 
   go tube.handleDemand()
@@ -48,6 +60,8 @@ func (tube *Tube) handleDemand() {
         tube.delete(job)
       case job := <-tube.jobSupply:
         tube.put(job)
+      case job := <-tube.jobTouch:
+        tube.touch(job)
       case request := <-tube.jobDemand:
         select {
         case request.success <- tube.reserve():
@@ -59,6 +73,8 @@ func (tube *Tube) handleDemand() {
       select {
       case job := <-tube.jobDelete:
         tube.delete(job)
+      case job := <-tube.jobTouch:
+        tube.touch(job)
       case job := <-tube.jobSupply:
         tube.put(job)
       }
@@ -94,4 +110,16 @@ func (tube *Tube) put(job *Job) {
 
 func (tube *Tube) delete(job *Job) {
   job.jobHolder.deleteJob(job)
+}
+
+func (tube *Tube) touch(job *Job) {
+  job.jobHolder.touchJob(job)
+}
+
+func (tube *Tube) pauseTimeLeft() (seconds time.Duration) {
+  return
+}
+
+func (tube *Tube) pausedDuration() (seconds time.Duration) {
+  return
 }
