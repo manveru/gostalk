@@ -21,6 +21,7 @@ const (
   MSG_DEADLINE_SOON   = "DEADLINE_SOON\r\n"
   MSG_TIMED_OUT       = "TIMED_OUT\r\n"
   MSG_DELETED         = "DELETED\r\n"
+  MSG_PAUSED          = "PAUSED\r\n"
   MSG_RELEASED        = "RELEASED\r\n"
   MSG_TOUCHED         = "TOUCHED\r\n"
   MSG_NOT_FOUND       = "NOT_FOUND\r\n"

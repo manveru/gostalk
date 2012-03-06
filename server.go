@@ -4,52 +4,28 @@ import (
   "os"
   "runtime/debug"
   "strings"
+  "sync/atomic"
   "time"
 )
 
 type Server struct {
-  getJobId               chan JobId
-  jobs                   map[JobId]*Job
-  tubes                  map[string]*Tube
-  pid                    int
-  startedAt              time.Time
-  currentConnectionCount uint
-  totalConnectionCount   uint
-  commandUsage           map[string]uint
+  getJobId  chan JobId
+  jobs      map[JobId]*Job
+  tubes     map[string]*Tube
+  startedAt time.Time
+  stats     *serverStats
 }
 
 func newServer() (server *Server) {
   server = &Server{
-    getJobId: make(chan JobId, 42),
-    tubes:    make(map[string]*Tube),
-    jobs:     make(map[JobId]*Job),
-    currentConnectionCount: 0,
-    totalConnectionCount:   0,
-    pid:                    os.Getpid(),
-    startedAt:              time.Now(),
-    commandUsage: map[string]uint{
-      "bury":                 0,
-      "delete":               0,
-      "ignore":               0,
-      "kick":                 0,
-      "list-tubes":           0,
-      "list-tubes-watched":   0,
-      "list-tube-used":       0,
-      "pause-tube":           0,
-      "peek-buried":          0,
-      "peek":                 0,
-      "peek-delayed":         0,
-      "peek-ready":           0,
-      "put":                  0,
-      "quit":                 0,
-      "reserve":              0,
-      "reserve-with-timeout": 0,
-      "stats":                0,
-      "stats-job":            0,
-      "stats-tube":           0,
-      "touch":                0,
-      "use":                  0,
-      "watch":                0,
+    getJobId:  make(chan JobId, 42),
+    tubes:     make(map[string]*Tube),
+    jobs:      make(map[JobId]*Job),
+    startedAt: time.Now(),
+    stats: &serverStats{
+      Version:    GOSTALK_VERSION,
+      PID:        os.Getpid(),
+      MaxJobSize: JOB_DATA_SIZE_LIMIT,
     },
   }
 
@@ -66,6 +42,7 @@ func (server *Server) runGetJobId() {
   }
 }
 
+// TODO: get rid of unused tubes.
 func (server *Server) findOrCreateTube(name string) *Tube {
   tube, found := server.findTube(name)
 
@@ -89,8 +66,8 @@ func (server *Server) findTube(name string) (tube *Tube, found bool) {
 
 func (server *Server) accept(conn Conn) {
   defer server.acceptFinalize(conn)
-  server.totalConnectionCount += 1
-  server.currentConnectionCount += 1
+  atomic.AddInt64(&server.stats.CurrentConnections, 1)
+  atomic.AddInt64(&server.stats.TotalConnections, 1)
 
   client := newClient(server, conn)
 
@@ -111,7 +88,7 @@ func (server *Server) acceptFinalize(conn Conn) {
 
   pf("Closing Connection: %#v", conn)
   conn.Close()
-  server.currentConnectionCount -= 1
+  atomic.AddInt64(&server.stats.CurrentConnections, -1)
 }
 
 func processCommand(server *Server, client *Client) (err error) {
@@ -140,7 +117,6 @@ func processCommand(server *Server, client *Client) (err error) {
   case <-unknownCommandChan:
     response = MSG_UNKNOWN_COMMAND
   case response = <-cmd.respondChan:
-    cmd.server.commandUsage[cmd.name] += 1
   case <-cmd.closeConn:
     return newError("Close Connection")
   }
@@ -150,7 +126,7 @@ func processCommand(server *Server, client *Client) (err error) {
   return
 }
 
-func readCommand(reader Reader) (cmd *Cmd, err error) {
+func readCommand(reader Reader) (cmd *cmd, err error) {
   line, _, err := reader.ReadLine()
   if err == nil {
     chunks := strings.Fields(string(line))
@@ -160,67 +136,77 @@ func readCommand(reader Reader) (cmd *Cmd, err error) {
   return
 }
 
-func executeCommand(cmd *Cmd, unknownCommandChan chan bool) {
+func executeCommand(cmd *cmd, unknownCommandChan chan bool) {
   switch cmd.name {
   case "bury":
+    atomic.AddInt64(&cmd.server.stats.CmdBury, 1)
     cmd.bury()
   case "delete":
+    atomic.AddInt64(&cmd.server.stats.CmdDelete, 1)
     cmd.delete()
   case "ignore":
+    atomic.AddInt64(&cmd.server.stats.CmdIgnore, 1)
     cmd.ignore()
   case "kick":
+    atomic.AddInt64(&cmd.server.stats.CmdKick, 1)
     cmd.kick()
   case "list-tubes":
+    atomic.AddInt64(&cmd.server.stats.CmdListTubes, 1)
     cmd.listTubes()
   case "list-tubes-watched":
+    atomic.AddInt64(&cmd.server.stats.CmdListTubesWatched, 1)
     cmd.listTubesWatched()
   case "list-tube-used":
+    atomic.AddInt64(&cmd.server.stats.CmdListTubeUsed, 1)
     cmd.listTubeUsed()
   case "pause-tube":
+    atomic.AddInt64(&cmd.server.stats.CmdPauseTube, 1)
     cmd.pauseTube()
   case "peek-buried":
+    atomic.AddInt64(&cmd.server.stats.CmdPeekBuried, 1)
     cmd.peekBuried()
   case "peek":
+    atomic.AddInt64(&cmd.server.stats.CmdPeek, 1)
     cmd.peek()
   case "peek-delayed":
+    atomic.AddInt64(&cmd.server.stats.CmdPeekDelayed, 1)
     cmd.peekDelayed()
   case "peek-ready":
+    atomic.AddInt64(&cmd.server.stats.CmdPeekReady, 1)
     cmd.peekReady()
   case "put":
+    atomic.AddInt64(&cmd.server.stats.CmdPut, 1)
     cmd.put()
   case "quit":
+    atomic.AddInt64(&cmd.server.stats.CmdQuit, 1)
     cmd.quit()
   case "reserve":
+    atomic.AddInt64(&cmd.server.stats.CmdReserve, 1)
     cmd.reserve()
   case "reserve-with-timeout":
+    atomic.AddInt64(&cmd.server.stats.CmdReserveWithTimeout, 1)
     cmd.reserveWithTimeout()
   case "stats":
+    atomic.AddInt64(&cmd.server.stats.CmdStats, 1)
     cmd.stats()
   case "stats-job":
+    atomic.AddInt64(&cmd.server.stats.CmdStatsJob, 1)
     cmd.statsJob()
   case "stats-tube":
+    atomic.AddInt64(&cmd.server.stats.CmdStatsTube, 1)
     cmd.statsTube()
   case "touch":
+    atomic.AddInt64(&cmd.server.stats.CmdTouch, 1)
     cmd.touch()
   case "use":
+    atomic.AddInt64(&cmd.server.stats.CmdUse, 1)
     cmd.use()
   case "watch":
+    atomic.AddInt64(&cmd.server.stats.CmdWatch, 1)
     cmd.watch()
   default:
     unknownCommandChan <- true
   }
-}
-
-func (server *Server) statJobs() (urgent, ready, reserved, delayed, buried int) {
-  for _, tube := range server.tubes {
-    urgent += tube.statUrgent
-    ready += tube.statReady
-    reserved += tube.statReserved
-    delayed += tube.statDelayed
-    buried += tube.statBuried
-  }
-
-  return
 }
 
 func (server *Server) exit(status int) {

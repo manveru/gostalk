@@ -1,464 +1,409 @@
 package gostalk
 
 import (
-  "fmt"
-  "io"
-  "launchpad.net/goyaml"
-  "runtime"
-  "strconv"
-  "syscall"
-  "time"
+	"fmt"
+	"io"
+	"strconv"
+	"time"
 )
 
-type Cmd struct {
-  server      *Server
-  client      *Client
-  name        string
-  args        []string
-  respondChan chan string
-  closeConn   chan bool
+type cmd struct {
+	server      *Server
+	client      *Client
+	name        string
+	args        []string
+	respondChan chan string
+	closeConn   chan bool
 }
 
-func newCmd(name string, args []string) *Cmd {
-  return &Cmd{
-    respondChan: make(chan string),
-    closeConn:   make(chan bool),
-    name:        name,
-    args:        args,
-  }
+func newCmd(name string, args []string) *cmd {
+	return &cmd{
+		respondChan: make(chan string),
+		closeConn:   make(chan bool),
+		name:        name,
+		args:        args,
+	}
 }
 
-func (cmd *Cmd) respond(res string) {
-  cmd.respondChan <- res
+func (cmd *cmd) respond(res string) {
+	cmd.respondChan <- res
 }
 
-func (cmd *Cmd) assertNumberOfArguments(n int) {
-  if len(cmd.args) != n {
-    pf("Wrong number of arguments: expected %d, got %d", n, len(cmd.args))
-    cmd.respond(MSG_BAD_FORMAT)
-  }
+func (cmd *cmd) assertNumberOfArguments(n int) {
+	if len(cmd.args) != n {
+		pf("Wrong number of arguments: expected %d, got %d", n, len(cmd.args))
+		cmd.respond(MSG_BAD_FORMAT)
+	}
 }
 
-func (cmd *Cmd) getInt(idx int) (to int64) {
-  from := cmd.args[idx]
-  to, err := strconv.ParseInt(from, 10, 64)
-  if err != nil {
-    pf("cmd.getInt(%#v) : %v", from, err)
-    cmd.respond(MSG_BAD_FORMAT)
-  }
-  return
+func (cmd *cmd) getInt(idx int) (to int64) {
+	from := cmd.args[idx]
+	to, err := strconv.ParseInt(from, 10, 64)
+	if err != nil {
+		pf("cmd.getInt(%#v) : %v", from, err)
+		cmd.respond(MSG_BAD_FORMAT)
+	}
+	return
 }
 
-func (cmd *Cmd) getUint(idx int) (to uint64) {
-  from := cmd.args[idx]
-  to, err := strconv.ParseUint(from, 10, 64)
-  if err != nil {
-    pf("cmd.getInt(%#v) : %v", from, err)
-    cmd.respond(MSG_BAD_FORMAT)
-  }
-  return
+func (cmd *cmd) getUint(idx int) (to uint64) {
+	from := cmd.args[idx]
+	to, err := strconv.ParseUint(from, 10, 64)
+	if err != nil {
+		pf("cmd.getInt(%#v) : %v", from, err)
+		cmd.respond(MSG_BAD_FORMAT)
+	}
+	return
 }
 
-/*
-func (server *Server) deleteJob(id JobId) (deleted bool) {
-  job, found := server.jobs[id]
-  if found {
-    job.deleteFrom(server)
-    deleted = true
-  }
-  return
+func (cmd *cmd) bury() {
+	cmd.assertNumberOfArguments(1)
+	jobId := JobId(cmd.getUint(0))
+
+	job, found := cmd.server.jobs[jobId]
+	if found && job.state == jobReservedState && job.client == cmd.client {
+		job.bury()
+		cmd.respond(MSG_BURIED)
+	} else {
+		cmd.respond(MSG_NOT_FOUND)
+		return
+	}
 }
 
-func (server *Server) buryJob(id JobId) (buried bool) {
-  job, found = := server.jobs[id]
-  if found {
-    job.bury()
-    buried = true
-  }
-  return
-}
-*/
+func (cmd *cmd) delete() {
+	cmd.assertNumberOfArguments(1)
+	jobId := JobId(cmd.getUint(0))
 
-func (cmd *Cmd) bury() {
-  cmd.assertNumberOfArguments(1)
-  jobId := JobId(cmd.getUint(0))
+	job, found := cmd.server.jobs[jobId]
+	if !found {
+		cmd.respond(MSG_NOT_FOUND)
+		return
+	}
 
-  job, found := cmd.server.jobs[jobId]
-  if !found || job.state != jobReservedState || job.client != cmd.client {
-    cmd.respond(MSG_NOT_FOUND)
-    return
-  }
-
-  job.bury()
-  cmd.respond(MSG_BURIED)
-}
-
-func (cmd *Cmd) delete() {
-  cmd.assertNumberOfArguments(1)
-  jobId := JobId(cmd.getUint(0))
-
-  job, found := cmd.server.jobs[jobId]
-  if !found {
-    cmd.respond(MSG_NOT_FOUND)
-    return
-  }
-
-  switch job.state {
-  case jobReservedState:
-    if job.client == cmd.client {
-      job.deleteFrom(cmd.server)
-      cmd.respond(MSG_DELETED)
-    }
-  case jobBuriedState, jobDelayedState, jobReadyState:
-    job.deleteFrom(cmd.server)
-    cmd.respond(MSG_DELETED)
-  default:
-    cmd.respond(MSG_NOT_FOUND)
-  }
+	switch job.state {
+	case jobReservedState:
+		if job.client == cmd.client {
+			job.deleteFrom(cmd.server)
+			cmd.respond(MSG_DELETED)
+		} else {
+			cmd.respond(MSG_NOT_FOUND)
+		}
+	case jobBuriedState, jobDelayedState, jobReadyState:
+		job.deleteFrom(cmd.server)
+		cmd.respond(MSG_DELETED)
+	default:
+		cmd.respond(MSG_NOT_FOUND)
+	}
 }
 
-func (cmd *Cmd) ignore() {
-  cmd.assertNumberOfArguments(1)
+func (cmd *cmd) ignore() {
+	cmd.assertNumberOfArguments(1)
 
-  name := cmd.args[0]
-  if !NAME_CHARS.MatchString(name) {
-    cmd.respond(MSG_BAD_FORMAT)
-  }
+	name := cmd.args[0]
+	if !NAME_CHARS.MatchString(name) {
+		cmd.respond(MSG_BAD_FORMAT)
+	}
 
-  ignored, totalTubes := cmd.client.ignoreTube(name)
-  if ignored {
-    cmd.respond(fmt.Sprintf("WATCHING %d\r\n", totalTubes))
-  } else {
-    cmd.respond("NOT_IGNORED\r\n")
-  }
+	ignored, totalTubes := cmd.client.ignoreTube(name)
+	if ignored {
+		cmd.respond(fmt.Sprintf("WATCHING %d\r\n", totalTubes))
+	} else {
+		cmd.respond("NOT_IGNORED\r\n")
+	}
 }
 
-func (cmd *Cmd) kick() {
-  cmd.respond(MSG_INTERNAL_ERROR)
+func (cmd *cmd) kick() {
+	cmd.assertNumberOfArguments(1)
+	bound := cmd.getUint(0)
+
+	jobKick := &jobKickRequest{
+		bound:   int(bound),
+		success: make(chan int),
+	}
+
+	cmd.client.usedTube.jobKick <- jobKick
+	actual := <-jobKick.success
+
+	cmd.respond(fmt.Sprintf("KICKED %d\r\n", actual))
 }
 
-func (cmd *Cmd) listTubes() {
-  cmd.assertNumberOfArguments(0)
+func (cmd *cmd) listTubes() {
+	cmd.assertNumberOfArguments(0)
 
-  list := make([]string, 0)
-  for key := range cmd.server.tubes {
-    list = append(list, key)
-  }
+	list := make([]string, 0)
+	for key := range cmd.server.tubes {
+		list = append(list, key)
+	}
 
-  yaml, err := goyaml.Marshal(list)
-  if err != nil {
-    pf("goyaml.Marshal : %#v", err)
-    cmd.respond(MSG_INTERNAL_ERROR)
-  }
+	yaml, err := toYaml(list)
+	if err != nil {
+		p(err)
+		cmd.respond(MSG_INTERNAL_ERROR)
+	}
 
-  cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
+	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
 }
 
-func (cmd *Cmd) listTubesWatched() {
-  cmd.assertNumberOfArguments(0)
+func (cmd *cmd) listTubesWatched() {
+	cmd.assertNumberOfArguments(0)
 
-  list := make([]string, 0)
-  for _, tube := range cmd.client.watchedTubes {
-    list = append(list, tube.name)
-  }
+	list := make([]string, 0)
+	for _, tube := range cmd.client.watchedTubes {
+		list = append(list, tube.name)
+	}
 
-  yaml, err := goyaml.Marshal(list)
-  if err != nil {
-    pf("goyaml.Marshal : %#v", err)
-    cmd.respond(MSG_INTERNAL_ERROR)
-  }
+	yaml, err := toYaml(list)
+	if err != nil {
+		p(err)
+		cmd.respond(MSG_INTERNAL_ERROR)
+	}
 
-  cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
+	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
 }
-func (cmd *Cmd) listTubeUsed() {
-  cmd.assertNumberOfArguments(0)
-  cmd.respond(fmt.Sprintf("USING %s\r\n", cmd.client.usedTube.name))
+func (cmd *cmd) listTubeUsed() {
+	cmd.assertNumberOfArguments(0)
+	cmd.respond(fmt.Sprintf("USING %s\r\n", cmd.client.usedTube.name))
 }
-func (cmd *Cmd) pauseTube() {
-  cmd.respond(MSG_INTERNAL_ERROR)
+func (cmd *cmd) pauseTube() {
+	cmd.assertNumberOfArguments(2)
+
+	tube, found := cmd.server.findTube(cmd.args[0])
+	if !found {
+		cmd.respond(MSG_NOT_FOUND)
+		return
+	}
+
+	delay := cmd.getInt(1)
+	tube.tubePause <- time.Duration(delay) * time.Second
+	cmd.respond(MSG_PAUSED)
 }
-func (cmd *Cmd) peek() {
-  cmd.respond(MSG_INTERNAL_ERROR)
+func (cmd *cmd) peek() {
+	cmd.respond(MSG_INTERNAL_ERROR)
 }
-func (cmd *Cmd) peekBuried() {
-  cmd.respond(MSG_INTERNAL_ERROR)
+func (cmd *cmd) peekBuried() {
+	cmd.respond(MSG_INTERNAL_ERROR)
 }
-func (cmd *Cmd) peekDelayed() {
-  cmd.respond(MSG_INTERNAL_ERROR)
+func (cmd *cmd) peekDelayed() {
+	cmd.respond(MSG_INTERNAL_ERROR)
 }
-func (cmd *Cmd) peekReady() {
-  cmd.respond(MSG_INTERNAL_ERROR)
-}
-
-func (cmd *Cmd) put() {
-  cmd.assertNumberOfArguments(4)
-
-  priority := uint32(cmd.getInt(0))
-  if priority < 0 {
-    priority = 0
-  } else if priority > 4294967295 {
-    priority = 4294967295
-  }
-  delay := cmd.getInt(1)
-  ttr := cmd.getInt(2)
-  if ttr < 1 {
-    ttr = 1
-  }
-  bodySize := cmd.getInt(3)
-
-  if bodySize > JOB_DATA_SIZE_LIMIT {
-    cmd.respond(MSG_JOB_TOO_BIG)
-  }
-
-  body := make([]byte, bodySize)
-  _, err := io.ReadFull(cmd.client.reader, body)
-  if err != nil {
-    pf("io.ReadFull : %#v", err)
-    cmd.respond(MSG_INTERNAL_ERROR)
-  }
-  rn := make([]byte, 2)
-  _, err = io.ReadAtLeast(cmd.client.reader, rn, 2)
-  if err != nil {
-    if err.Error() == "ErrUnexpextedEOF" {
-      cmd.respond(MSG_EXPECTED_CRLF)
-    } else {
-      pf("io.ReadAtLeast : %#v", err)
-      cmd.respond(MSG_INTERNAL_ERROR)
-    }
-  }
-
-  if rn[0] != '\r' || rn[1] != '\n' {
-    cmd.respond(MSG_EXPECTED_CRLF)
-  }
-
-  id := <-cmd.server.getJobId
-  job := newJob(id, priority, delay, ttr, body)
-
-  tube := cmd.client.usedTube
-  tube.jobSupply <- job
-  cmd.server.jobs[job.id] = job
-  cmd.client.isProducer = true
-  cmd.respond(fmt.Sprintf("INSERTED %d\r\n", job.id))
+func (cmd *cmd) peekReady() {
+	cmd.respond(MSG_INTERNAL_ERROR)
 }
 
-func (cmd *Cmd) quit() {
-  cmd.assertNumberOfArguments(0)
-  cmd.closeConn <- true
+func (cmd *cmd) put() {
+	cmd.assertNumberOfArguments(4)
+
+	priority := uint32(cmd.getInt(0))
+	if priority < 0 {
+		priority = 0
+	} else if priority > 4294967295 {
+		priority = 4294967295
+	}
+	delay := cmd.getInt(1)
+	ttr := cmd.getInt(2)
+	if ttr < 1 {
+		ttr = 1
+	}
+	bodySize := cmd.getInt(3)
+
+	if bodySize > JOB_DATA_SIZE_LIMIT {
+		cmd.respond(MSG_JOB_TOO_BIG)
+	}
+
+	body := make([]byte, bodySize)
+	_, err := io.ReadFull(cmd.client.reader, body)
+	if err != nil {
+		pf("io.ReadFull : %#v", err)
+		cmd.respond(MSG_INTERNAL_ERROR)
+	}
+	rn := make([]byte, 2)
+	_, err = io.ReadAtLeast(cmd.client.reader, rn, 2)
+	if err != nil {
+		if err.Error() == "ErrUnexpextedEOF" {
+			cmd.respond(MSG_EXPECTED_CRLF)
+		} else {
+			pf("io.ReadAtLeast : %#v", err)
+			cmd.respond(MSG_INTERNAL_ERROR)
+		}
+	}
+
+	if rn[0] != '\r' || rn[1] != '\n' {
+		cmd.respond(MSG_EXPECTED_CRLF)
+	}
+
+	tube := cmd.client.usedTube
+
+	id := <-cmd.server.getJobId
+	job := newJob(id, priority, delay, ttr, body)
+
+	tube.jobSupply <- job
+	cmd.server.jobs[job.id] = job
+	cmd.client.isProducer = true
+	cmd.respond(fmt.Sprintf("INSERTED %d\r\n", job.id))
 }
 
-func (cmd *Cmd) reserveCommon() *jobReserveRequest {
-  request := &jobReserveRequest{
-    client:  cmd.client,
-    success: make(chan *Job),
-    cancel:  make(chan bool, 1),
-  }
-
-  for _, tube := range cmd.client.watchedTubes {
-    go func(t *Tube, r *jobReserveRequest) {
-      select {
-      case t.jobDemand <- r:
-      case <-r.cancel:
-        r.cancel <- true
-      }
-    }(tube, request)
-  }
-
-  return request
+func (cmd *cmd) quit() {
+	cmd.assertNumberOfArguments(0)
+	cmd.closeConn <- true
 }
 
-func (cmd *Cmd) reserve() {
-  cmd.assertNumberOfArguments(0)
+func (cmd *cmd) reserveCommon() *jobReserveRequest {
+	request := &jobReserveRequest{
+		client:  cmd.client,
+		success: make(chan *Job),
+		cancel:  make(chan bool, 1),
+	}
 
-  cmd.client.isWorker = true
-  request := cmd.reserveCommon()
-  job := <-request.success
-  request.cancel <- true
-  cmd.respond(job.reservedString())
+	for _, tube := range cmd.client.watchedTubes {
+		go func(t *Tube, r *jobReserveRequest) {
+			select {
+			case t.jobDemand <- r:
+			case <-r.cancel:
+				r.cancel <- true
+			}
+		}(tube, request)
+	}
+
+	return request
 }
 
-func (cmd *Cmd) reserveWithTimeout() {
-  cmd.assertNumberOfArguments(1) // seconds
-  seconds := cmd.getInt(0)
-  if seconds < 0 {
-    seconds = 0
-  }
+func (cmd *cmd) reserve() {
+	cmd.assertNumberOfArguments(0)
 
-  cmd.client.isWorker = true
-  request := cmd.reserveCommon()
-
-  select {
-  case job := <-request.success:
-    cmd.respond(job.reservedString())
-    request.cancel <- true
-  case <-time.After(time.Duration(seconds) * time.Second):
-    cmd.respond(MSG_TIMED_OUT)
-    request.cancel <- true
-  }
+	cmd.client.isWorker = true
+	request := cmd.reserveCommon()
+	job := <-request.success
+	request.cancel <- true
+	cmd.respond(job.reservedString())
 }
 
-func (cmd *Cmd) stats() {
-  cmd.assertNumberOfArguments(0)
-  server := cmd.server
-  urgent, ready, reserved, delayed, buried := server.statJobs()
+func (cmd *cmd) reserveWithTimeout() {
+	cmd.assertNumberOfArguments(1) // seconds
+	seconds := cmd.getInt(0)
+	if seconds < 0 {
+		seconds = 0
+	}
 
-  raw := map[string]interface{}{
-    "version":               GOSTALK_VERSION,
-    "total-connections":     server.totalConnectionCount,
-    "current-connections":   server.currentConnectionCount,
-    "pid":                   server.pid,
-    "uptime":                time.Since(cmd.server.startedAt).Seconds(),
-    "max-job-size":          JOB_DATA_SIZE_LIMIT,
-    "current-tubes":         len(server.tubes),
-    "current-jobs-urgent":   urgent,
-    "current-jobs-ready":    ready,
-    "current-jobs-reserved": reserved,
-    "current-jobs-delayed":  delayed,
-    "current-jobs-buried":   buried,
-    "go-current-goroutines": runtime.NumGoroutine(),
-  }
+	cmd.client.isWorker = true
+	request := cmd.reserveCommon()
 
-  for key, value := range server.commandUsage {
-    raw["cmd-"+key] = value
-  }
-
-  usage := new(syscall.Rusage)
-  err := syscall.Getrusage(syscall.RUSAGE_SELF, usage)
-  if err == nil {
-    utimeSec, utimeNsec := usage.Utime.Unix()
-    stimeSec, stimeNsec := usage.Stime.Unix()
-    raw["rusage-utime"] = float32(utimeSec) + (float32(utimeNsec) / 10000000.0)
-    raw["rusage-stime"] = float32(stimeSec) + (float32(stimeNsec) / 10000000.0)
-  } else {
-    pf("failed to get rusage : %v", err)
-  }
-
-  /*
-     TODO: those still need implementation
-     raw["job-timeouts"] = 1234 // is the cumulative count of times a job has timed out.
-     raw["total-jobs"] = 1234 // is the cumulative count of jobs created.
-     raw["current-producers"] = 1234 // is the number of open connections that have each
-     raw["current-workers"] = 1234 // is the number of open connections that have each issued
-     raw["current-waiting"] = 1234 // is the number of open connections that have issued a
-     raw["binlog-oldest-index"] = 1234 // is the index of the oldest binlog file needed to
-     raw["binlog-current-index"] = 1234 // is the index of the current binlog file being
-     raw["binlog-max-size"] = 1234 // is the maximum size in bytes a binlog file is allowed
-     raw["binlog-records-written"] = 1234 // is the cumulative number of records written
-     raw["binlog-records-migrated"] = 1234 // is the cumulative number of records written
-  */
-
-  yaml, err := goyaml.Marshal(raw)
-  if err != nil {
-    pf("goyaml.Marshal : %#v", err)
-    cmd.respond(MSG_INTERNAL_ERROR)
-  }
-  // FIXME: needs to send OK <bytes>
-  cmd.respond(string(yaml))
-}
-func (cmd *Cmd) statsJob() {
-  cmd.assertNumberOfArguments(1)
-
-  jobId := JobId(cmd.getInt(0))
-
-  job, found := cmd.server.findJob(jobId)
-
-  if !found {
-    cmd.respond(MSG_NOT_FOUND)
-    return
-  }
-
-  stats := &map[string]interface{}{
-    "id":        job.id,
-    "tube":      job.tube.name,
-    "state":     job.state,
-    "pri":       job.priority,
-    "age":       time.Since(job.createdAt),
-    "time-left": job.timeLeft().Seconds(),
-    "file":      0, // TODO
-    "reserves":  job.reserveCount,
-    "releases":  job.releaseCount,
-    "timeouts":  job.timeoutCount,
-    "buries":    job.buryCount,
-    "kicks":     job.kickCount,
-  }
-
-  yaml, err := goyaml.Marshal(stats)
-  if err != nil {
-    pf("goyaml.Marshal : %#v", err)
-    cmd.respond(MSG_INTERNAL_ERROR)
-    return
-  }
-
-  cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
-}
-func (cmd *Cmd) statsTube() {
-  cmd.assertNumberOfArguments(1)
-
-  tube, found := cmd.server.findTube(cmd.args[0])
-
-  if !found {
-    cmd.respond(MSG_NOT_FOUND)
-    return
-  }
-
-  stats := &map[string]interface{}{
-    "name":                  tube.name,             // is the tube's name.
-    "current-jobs-urgent":   tube.statUrgent,       // is the number of ready jobs with priority < 1024 in this tube.
-    "current-jobs-ready":    tube.statReady,        // is the number of jobs in the ready queue in this tube.
-    "current-jobs-reserved": tube.statReserved,     // is the number of jobs reserved by all clients in this tube.
-    "current-jobs-delayed":  tube.statDelayed,      // is the number of delayed jobs in this tube.
-    "current-jobs-buried":   tube.statBuried,       // is the number of buried jobs in this tube.
-    "total-jobs":            tube.statTotalJobs,    // is the cumulative count of jobs created in this tube in the current beanstalkd process.
-    "current-waiting":       0,                     // TODO: is the number of open connections that have issued a reserve command while watching this tube but not yet received a response.
-    "cmd-delete":            tube.statDeleted,      // is the cumulative number of delete commands for this tube
-    "cmd-pause-tube":        tube.statPaused,       // is the cumulative number of pause-tube commands for this tube.
-    "pause":                 tube.pausedDuration(), // is the number of seconds the tube has been paused for.
-    "pause-time-left":       tube.pauseTimeLeft(),  // is the number of seconds until the tube is un-paused.
-  }
-
-  yaml, err := goyaml.Marshal(stats)
-  if err != nil {
-    pf("goyaml.Marshal : %#v", err)
-    cmd.respond(MSG_INTERNAL_ERROR)
-    return
-  }
-
-  cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
-}
-func (cmd *Cmd) touch() {
-  cmd.assertNumberOfArguments(1)
-  jobId := JobId(cmd.getInt(0))
-
-  job, found := cmd.server.findJob(jobId)
-
-  if !found {
-    cmd.respond(MSG_NOT_FOUND)
-    return
-  }
-
-  job.touch()
-  cmd.respond(MSG_TOUCHED)
+	select {
+	case job := <-request.success:
+		cmd.respond(job.reservedString())
+		request.cancel <- true
+	case <-time.After(time.Duration(seconds) * time.Second):
+		cmd.respond(MSG_TIMED_OUT)
+		request.cancel <- true
+	}
 }
 
-func (cmd *Cmd) use() {
-  cmd.assertNumberOfArguments(1)
+func (cmd *cmd) stats() {
+	cmd.assertNumberOfArguments(0)
 
-  name := cmd.args[0]
-  if !NAME_CHARS.MatchString(name) {
-    cmd.respond(MSG_BAD_FORMAT)
-  }
+	stats := cmd.server.statistics()
+	p(stats)
+	yaml, err := toYaml(stats)
+	if err != nil {
+		p(err)
+		cmd.respond(MSG_INTERNAL_ERROR)
+		return
+	}
 
-  cmd.client.usedTube = cmd.server.findOrCreateTube(name)
-  cmd.respond(fmt.Sprintf("USING %s\r\n", name))
+	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
 }
 
-func (cmd *Cmd) watch() {
-  cmd.assertNumberOfArguments(1)
+func (cmd *cmd) statsJob() {
+	cmd.assertNumberOfArguments(1)
 
-  name := cmd.args[0]
-  if !NAME_CHARS.MatchString(name) {
-    cmd.respond(MSG_BAD_FORMAT)
-  }
+	jobId := JobId(cmd.getInt(0))
 
-  cmd.client.watchTube(name)
-  cmd.respond("OK\r\n")
+	job, found := cmd.server.findJob(jobId)
+
+	if !found {
+		cmd.respond(MSG_NOT_FOUND)
+		return
+	}
+
+	stats := &map[string]interface{}{
+		"id":        job.id,
+		"tube":      job.tube.name,
+		"state":     job.state,
+		"pri":       job.priority,
+		"age":       time.Since(job.createdAt),
+		"time-left": job.timeLeft().Seconds(),
+		"file":      0, // TODO
+		"reserves":  job.reserveCount,
+		"releases":  job.releaseCount,
+		"timeouts":  job.timeoutCount,
+		"buries":    job.buryCount,
+		"kicks":     job.kickCount,
+	}
+
+	yaml, err := toYaml(stats)
+	if err != nil {
+		p(err)
+		cmd.respond(MSG_INTERNAL_ERROR)
+		return
+	}
+
+	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
+}
+func (cmd *cmd) statsTube() {
+	cmd.assertNumberOfArguments(1)
+
+	tube, found := cmd.server.findTube(cmd.args[0])
+
+	if !found {
+		cmd.respond(MSG_NOT_FOUND)
+		return
+	}
+
+	stats := tube.statistics()
+
+	yaml, err := toYaml(stats)
+	if err != nil {
+		p(err)
+		cmd.respond(MSG_INTERNAL_ERROR)
+		return
+	}
+
+	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
+}
+func (cmd *cmd) touch() {
+	cmd.assertNumberOfArguments(1)
+	jobId := JobId(cmd.getInt(0))
+
+	job, found := cmd.server.findJob(jobId)
+
+	if !found {
+		cmd.respond(MSG_NOT_FOUND)
+		return
+	}
+
+	job.touch()
+	cmd.respond(MSG_TOUCHED)
+}
+
+func (cmd *cmd) use() {
+	cmd.assertNumberOfArguments(1)
+
+	name := cmd.args[0]
+	if !NAME_CHARS.MatchString(name) {
+		cmd.respond(MSG_BAD_FORMAT)
+	}
+
+	cmd.client.usedTube = cmd.server.findOrCreateTube(name)
+	cmd.respond(fmt.Sprintf("USING %s\r\n", name))
+}
+
+func (cmd *cmd) watch() {
+	cmd.assertNumberOfArguments(1)
+
+	name := cmd.args[0]
+	if !NAME_CHARS.MatchString(name) {
+		cmd.respond(MSG_BAD_FORMAT)
+	}
+
+	cmd.client.watchTube(name)
+	cmd.respond("OK\r\n")
 }

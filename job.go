@@ -6,13 +6,14 @@ import (
 )
 
 const (
-  jobReadyState    = "ready"
-  jobDelayedState  = "delayed"
-  jobReservedState = "reserved"
-  jobBuriedState   = "buried"
+  jobReadyState           = "ready"
+  jobDelayedState         = "delayed"
+  jobReservedState        = "reserved"
+  jobBuriedState          = "buried"
+  jobWillHaveDelayedState = "job will have delayed state"
 )
 
-type JobHolder interface {
+type jobHolder interface {
   deleteJob(*Job)
   touchJob(*Job)
   buryJob(*Job)
@@ -20,20 +21,17 @@ type JobHolder interface {
 
 type JobId uint64
 type Job struct {
-  id       JobId
-  priority uint32
-  state    string
-  body     []byte
-  tube     *Tube
-  index    int
-  client   *Client
-
-  createdAt, delayEndsAt, reserveEndsAt time.Time
-  timeToReserve                         time.Duration
-
-  reserveCount, releaseCount, timeoutCount, buryCount, kickCount int
-
-  jobHolder JobHolder
+  body                                                                  []byte
+  client                                                                *Client
+  id                                                                    JobId
+  jobHolder                                                             jobHolder
+  priority                                                              uint32
+  state                                                                 string
+  tube                                                                  *Tube
+  timer                                                                 *time.Timer
+  timeToReserve                                                         time.Duration
+  createdAt, delayEndsAt, reserveEndsAt                                 time.Time
+  index, reserveCount, releaseCount, timeoutCount, buryCount, kickCount int
 }
 
 func newJob(id JobId, priority uint32, delay int64, ttr int64, body []byte) (job *Job) {
@@ -46,6 +44,7 @@ func newJob(id JobId, priority uint32, delay int64, ttr int64, body []byte) (job
   }
 
   if delay > 0 {
+    job.state = jobWillHaveDelayedState
     job.delayEndsAt = time.Now().Add(time.Duration(delay) * time.Second)
   }
 
@@ -81,4 +80,8 @@ func (job *Job) bury() {
 
 func (job *Job) touch() {
   job.tube.jobTouch <- job
+}
+
+func (job *Job) isUrgent() bool {
+  return job.priority > 1024
 }
