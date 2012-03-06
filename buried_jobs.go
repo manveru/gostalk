@@ -1,9 +1,5 @@
 package gostalk
 
-import (
-	"fmt"
-)
-
 type buriedJobs []*Job
 
 func newBuriedJobs() (jobs *buriedJobs) {
@@ -31,11 +27,9 @@ func (jobs *buriedJobs) buryJob(job *Job) {
 }
 
 func (jobs *buriedJobs) deleteJob(job *Job) {
-	fmt.Println(jobs)
 	for i, j := range *jobs {
 		if j.id == job.id {
 			*jobs = append((*jobs)[0:i], (*jobs)[i+1:]...)
-			fmt.Println(jobs)
 			return
 		}
 	}
