@@ -5,8 +5,8 @@ import (
 )
 
 type jobReserveRequest struct {
-	client  *Client
-	success chan *Job
+	client  *client
+	success chan *job
 	cancel  chan bool
 }
 
@@ -17,10 +17,10 @@ type jobKickRequest struct {
 
 type jobPeekRequest struct {
 	state   string
-	success chan *Job
+	success chan *job
 }
 
-type Tube struct {
+type tube struct {
 	name     string
 	ready    *readyJobs
 	reserved *reservedJobs
@@ -28,10 +28,10 @@ type Tube struct {
 	delayed  *delayedJobs
 
 	jobDemand chan *jobReserveRequest
-	jobSupply chan *Job
-	jobDelete chan *Job
-	jobTouch  chan *Job
-	jobBury   chan *Job
+	jobSupply chan *job
+	jobDelete chan *job
+	jobTouch  chan *job
+	jobBury   chan *job
 	jobKick   chan *jobKickRequest
 	jobPeek   chan *jobPeekRequest
 	tubePause chan time.Duration
@@ -43,8 +43,8 @@ type Tube struct {
 	stats *tubeStats
 }
 
-func newTube(name string) (tube *Tube) {
-	tube = &Tube{
+func newTube(name string) *tube {
+	t := &tube{
 		name:      name,
 		paused:    false,
 		ready:     newReadyJobs(),
@@ -52,20 +52,20 @@ func newTube(name string) (tube *Tube) {
 		buried:    newBuriedJobs(),
 		delayed:   newDelayedJobs(),
 		jobDemand: make(chan *jobReserveRequest),
-		jobSupply: make(chan *Job),
-		jobDelete: make(chan *Job),
-		jobTouch:  make(chan *Job),
-		jobBury:   make(chan *Job),
+		jobSupply: make(chan *job),
+		jobDelete: make(chan *job),
+		jobTouch:  make(chan *job),
+		jobBury:   make(chan *job),
 		jobKick:   make(chan *jobKickRequest),
 		stats:     &tubeStats{Name: name},
 	}
 
-	go tube.handleDemand()
+	go t.handleDemand()
 
-	return
+	return t
 }
 
-func (tube *Tube) handleDemand() {
+func (tube *tube) handleDemand() {
 	for {
 		if tube.ready.Len() > 0 {
 			select {
@@ -111,7 +111,7 @@ func (tube *Tube) handleDemand() {
 	}
 }
 
-func (tube *Tube) reserve(client *Client) (job *Job) {
+func (tube *tube) reserve(client *client) (job *job) {
 	job = tube.ready.getJob()
 
 	tube.reserved.putJob(job)
@@ -124,7 +124,7 @@ func (tube *Tube) reserve(client *Client) (job *Job) {
 	return
 }
 
-func (tube *Tube) put(job *Job) {
+func (tube *tube) put(job *job) {
 	job.tube = tube
 	if job.isUrgent() {
 		tube.stats.CurrentUrgentJobs += 1
@@ -140,32 +140,32 @@ func (tube *Tube) put(job *Job) {
 	}
 }
 
-func (tube *Tube) delete(job *Job) {
+func (tube *tube) delete(job *job) {
 	if job.isUrgent() {
 		tube.stats.CurrentUrgentJobs -= 1
 	}
 	job.jobHolder.deleteJob(job)
 }
 
-func (tube *Tube) bury(job *Job) {
+func (tube *tube) bury(job *job) {
 	job.jobHolder.buryJob(job)
 	job.state = jobBuriedState
 	job.buryCount += 1
 	job.client = nil
 }
 
-func (tube *Tube) touch(job *Job) {
+func (tube *tube) touch(job *job) {
 	job.jobHolder.touchJob(job)
 }
 
-func (tube *Tube) pause(duration time.Duration) {
+func (tube *tube) pause(duration time.Duration) {
 	tube.paused = true
 	tube.pauseStartedAt = time.Now()
 	tube.pauseEndsAt = time.Now().Add(duration)
 	time.Sleep(duration)
 }
 
-func (tube *Tube) kick(bound int) (actual int) {
+func (tube *tube) kick(bound int) (actual int) {
 	if tube.buried.Len() > 0 {
 		actual = tube.buried.kickJobs(bound)
 	} else {
@@ -175,7 +175,7 @@ func (tube *Tube) kick(bound int) (actual int) {
 	return
 }
 
-func (tube *Tube) peek(request *jobPeekRequest) {
+func (tube *tube) peek(request *jobPeekRequest) {
 	switch request.state {
 	case jobReadyState:
 		tube.ready.peekJob(request)

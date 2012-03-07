@@ -4,7 +4,7 @@ import (
 	"code.google.com/p/go-priority-queue/prio"
 )
 
-type readyJobsItem Job
+type readyJobsItem job
 
 func (i *readyJobsItem) Less(j prio.Interface) bool {
 	return i.priority < j.(*readyJobsItem).priority
@@ -22,31 +22,31 @@ func newReadyJobs() (jobs *readyJobs) {
 	return &readyJobs{}
 }
 
-func (jobs *readyJobs) getJob() (job *Job) {
-	job = (*Job)(jobs.Pop().(*readyJobsItem))
-	job.jobHolder = nil
+func (jobs *readyJobs) getJob() (j *job) {
+	j = (*job)(jobs.Pop().(*readyJobsItem))
+	j.jobHolder = nil
 	return
 }
 
-func (jobs *readyJobs) putJob(job *Job) {
-	job.jobHolder = jobs
-	job.state = jobReadyState
-	jobs.Push((*readyJobsItem)(job))
+func (jobs *readyJobs) putJob(j *job) {
+	j.jobHolder = jobs
+	j.state = jobReadyState
+	jobs.Push((*readyJobsItem)(j))
 }
 
-func (jobs *readyJobs) deleteJob(job *Job) {
-	jobs.Remove(job.index)
-	job.jobHolder = nil
+func (jobs *readyJobs) deleteJob(j *job) {
+	jobs.Remove(j.index)
+	j.jobHolder = nil
 }
 
-func (jobs *readyJobs) touchJob(job *Job) {
+func (jobs *readyJobs) touchJob(j *job) {
 }
 
-func (jobs *readyJobs) buryJob(job *Job) {
-	jobs.deleteJob(job)
-	job.tube.buried.putJob(job)
+func (jobs *readyJobs) buryJob(j *job) {
+	jobs.deleteJob(j)
+	j.tube.buried.putJob(j)
 }
 
 func (jobs *readyJobs) peekJob(request *jobPeekRequest) {
-	request.success <- (*Job)(jobs.Peek().(*readyJobsItem))
+	request.success <- (*job)(jobs.Peek().(*readyJobsItem))
 }

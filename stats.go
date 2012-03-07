@@ -49,7 +49,7 @@ type tubeStats struct {
 	CurrentJobsReserved int    "current-jobs-reserved"
 }
 
-func (tube *Tube) statistics() tubeStats {
+func (tube *tube) statistics() tubeStats {
 	stats := *(tube.stats)
 	if tube.paused {
 		stats.PauseTimeLeft = int(tube.pauseEndsAt.Sub(time.Now()).Seconds())
@@ -108,7 +108,7 @@ type serverStats struct {
 	Version               string  "version"
 }
 
-func (server *Server) statistics() serverStats {
+func (server *server) statistics() serverStats {
 	stats := *server.stats
 	stats.Uptime = time.Since(server.startedAt).Seconds()
 	stats.CurrentTubes = len(server.tubes)

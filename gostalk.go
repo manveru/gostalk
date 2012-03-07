@@ -46,24 +46,18 @@ func pf(format string, v ...interface{}) {
 	log.Printf(format, v...)
 }
 
-type GostalkError struct {
-	msg string
+type exception string
+
+func (e exception) Error() string {
+	return string(e)
 }
 
-func (e GostalkError) Error() string {
-	return e.msg
-}
-
-func newError(msg string) *GostalkError {
-	return &GostalkError{msg: msg}
-}
-
-type Logger interface {
+type logger interface {
 	Println(v ...interface{})
 	Printf(string, ...interface{})
 }
 
-type Reader interface {
+type reader interface {
 	ReadLine() ([]byte, bool, error)
 	Read([]byte) (int, error)
 }

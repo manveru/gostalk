@@ -1,18 +1,18 @@
 package gostalk
 
-type buriedJobs []*Job
+type buriedJobs []*job
 
 func newBuriedJobs() (jobs *buriedJobs) {
 	return &buriedJobs{}
 }
 
-func (jobs *buriedJobs) putJob(job *Job) {
+func (jobs *buriedJobs) putJob(job *job) {
 	job.jobHolder = jobs
 	*jobs = append(*jobs, job)
 	job.index = len(*jobs)
 }
 
-func (jobs *buriedJobs) getJob() (job *Job) {
+func (jobs *buriedJobs) getJob() (job *job) {
 	job = (*jobs)[0]
 	*jobs = (*jobs)[1:len(*jobs)]
 	return
@@ -22,11 +22,11 @@ func (jobs *buriedJobs) Len() int {
 	return len(*jobs)
 }
 
-func (jobs *buriedJobs) buryJob(job *Job) {
+func (jobs *buriedJobs) buryJob(job *job) {
 	// nothing to do here
 }
 
-func (jobs *buriedJobs) deleteJob(job *Job) {
+func (jobs *buriedJobs) deleteJob(job *job) {
 	for i, j := range *jobs {
 		if j.id == job.id {
 			*jobs = append((*jobs)[0:i], (*jobs)[i+1:]...)
@@ -35,7 +35,7 @@ func (jobs *buriedJobs) deleteJob(job *Job) {
 	}
 }
 
-func (jobs *buriedJobs) touchJob(job *Job) {
+func (jobs *buriedJobs) touchJob(job *job) {
 	// nothing to do
 }
 

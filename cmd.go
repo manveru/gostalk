@@ -8,8 +8,8 @@ import (
 )
 
 type cmd struct {
-	server      *Server
-	client      *Client
+	server      *server
+	client      *client
 	name        string
 	args        []string
 	respondChan chan string
@@ -58,7 +58,7 @@ func (cmd *cmd) getUint(idx int) (to uint64) {
 
 func (cmd *cmd) bury() {
 	cmd.assertNumberOfArguments(1)
-	jobId := JobId(cmd.getUint(0))
+	jobId := jobId(cmd.getUint(0))
 
 	job, found := cmd.server.jobs[jobId]
 	if found && job.state == jobReservedState && job.client == cmd.client {
@@ -72,7 +72,7 @@ func (cmd *cmd) bury() {
 
 func (cmd *cmd) delete() {
 	cmd.assertNumberOfArguments(1)
-	jobId := JobId(cmd.getUint(0))
+	jobId := jobId(cmd.getUint(0))
 
 	job, found := cmd.server.jobs[jobId]
 	if !found {
@@ -183,7 +183,7 @@ func (cmd *cmd) peekByState(state string) {
 	cmd.assertNumberOfArguments(0)
 	request := &jobPeekRequest{
 		state:   state,
-		success: make(chan *Job),
+		success: make(chan *job),
 	}
 	cmd.client.usedTube.jobPeek <- request
 	job := <-request.success
@@ -196,7 +196,7 @@ func (cmd *cmd) peekByState(state string) {
 
 func (cmd *cmd) peek() {
 	cmd.assertNumberOfArguments(1)
-	jobId := JobId(cmd.getInt(0))
+	jobId := jobId(cmd.getInt(0))
 	job, found := cmd.server.findJob(jobId)
 
 	if found {
@@ -278,18 +278,18 @@ func (cmd *cmd) quit() {
 func (cmd *cmd) reserveCommon() *jobReserveRequest {
 	request := &jobReserveRequest{
 		client:  cmd.client,
-		success: make(chan *Job),
+		success: make(chan *job),
 		cancel:  make(chan bool, 1),
 	}
 
-	for _, tube := range cmd.client.watchedTubes {
-		go func(t *Tube, r *jobReserveRequest) {
+	for _, watchedTube := range cmd.client.watchedTubes {
+		go func(t *tube, r *jobReserveRequest) {
 			select {
 			case t.jobDemand <- r:
 			case <-r.cancel:
 				r.cancel <- true
 			}
-		}(tube, request)
+		}(watchedTube, request)
 	}
 
 	return request
@@ -343,7 +343,7 @@ func (cmd *cmd) stats() {
 func (cmd *cmd) statsJob() {
 	cmd.assertNumberOfArguments(1)
 
-	jobId := JobId(cmd.getInt(0))
+	jobId := jobId(cmd.getInt(0))
 
 	job, found := cmd.server.findJob(jobId)
 
@@ -399,7 +399,7 @@ func (cmd *cmd) statsTube() {
 }
 func (cmd *cmd) touch() {
 	cmd.assertNumberOfArguments(1)
-	jobId := JobId(cmd.getInt(0))
+	jobId := jobId(cmd.getInt(0))
 
 	job, found := cmd.server.findJob(jobId)
 

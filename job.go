@@ -13,28 +13,28 @@ const (
 )
 
 type jobHolder interface {
-	deleteJob(*Job)
-	touchJob(*Job)
-	buryJob(*Job)
+	deleteJob(*job)
+	touchJob(*job)
+	buryJob(*job)
 }
 
-type JobId uint64
-type Job struct {
+type jobId uint64
+type job struct {
 	body                                                                  []byte
-	client                                                                *Client
-	id                                                                    JobId
+	client                                                                *client
+	id                                                                    jobId
 	jobHolder                                                             jobHolder
 	priority                                                              uint32
 	state                                                                 string
-	tube                                                                  *Tube
+	tube                                                                  *tube
 	timer                                                                 *time.Timer
 	timeToReserve                                                         time.Duration
 	createdAt, delayEndsAt, reserveEndsAt                                 time.Time
 	index, reserveCount, releaseCount, timeoutCount, buryCount, kickCount int
 }
 
-func newJob(id JobId, priority uint32, delay int64, ttr int64, body []byte) (job *Job) {
-	job = &Job{
+func newJob(id jobId, priority uint32, delay int64, ttr int64, body []byte) *job {
+	j := &job{
 		id:            id,
 		priority:      priority,
 		createdAt:     time.Now(),
@@ -43,18 +43,18 @@ func newJob(id JobId, priority uint32, delay int64, ttr int64, body []byte) (job
 	}
 
 	if delay > 0 {
-		job.state = jobWillHaveDelayedState
-		job.delayEndsAt = time.Now().Add(time.Duration(delay) * time.Second)
+		j.state = jobWillHaveDelayedState
+		j.delayEndsAt = time.Now().Add(time.Duration(delay) * time.Second)
 	}
 
-	return job
+	return j
 }
 
 // the number of seconds left until the server puts this job into the ready
 // queue. This number is only meaningful if the job is reserved or delayed. If
 // the job is reserved and this amount of time elapses before its state
 // changes, it is considered to have timed out.
-func (job Job) timeLeft() (left time.Duration) {
+func (job job) timeLeft() (left time.Duration) {
 	switch job.state {
 	case jobReservedState:
 		left = job.reserveEndsAt.Sub(time.Now())
@@ -64,19 +64,19 @@ func (job Job) timeLeft() (left time.Duration) {
 	return
 }
 
-func (job *Job) deleteFrom(server *Server) {
+func (job *job) deleteFrom(server *server) {
 	delete(server.jobs, job.id)
 	job.tube.jobDelete <- job
 }
 
-func (job *Job) bury() {
+func (job *job) bury() {
 	job.tube.jobBury <- job
 }
 
-func (job *Job) touch() {
+func (job *job) touch() {
 	job.tube.jobTouch <- job
 }
 
-func (job *Job) isUrgent() bool {
+func (job *job) isUrgent() bool {
 	return job.priority > 1024
 }
