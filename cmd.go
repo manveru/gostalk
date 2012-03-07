@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"sync/atomic"
 	"time"
 )
 
@@ -56,7 +57,35 @@ func (cmd *cmd) getUint(idx int) (to uint64) {
 	return
 }
 
-func (cmd *cmd) bury() {
+var (
+	commands = map[string]func(*cmd){
+		"bury":                 cmdBury,
+		"delete":               cmdDelete,
+		"ignore":               cmdIgnore,
+		"kick":                 cmdKick,
+		"list-tubes":           cmdListTubes,
+		"list-tubes-watched":   cmdListTubesWatched,
+		"list-tube-used":       cmdListTubeUsed,
+		"pause-tube":           cmdPauseTube,
+		"peek-buried":          cmdPeekBuried,
+		"peek-delayed":         cmdPeekDelayed,
+		"peek":                 cmdPeek,
+		"peek-ready":           cmdPeekReady,
+		"put":                  cmdPut,
+		"quit":                 cmdQuit,
+		"reserve":              cmdReserve,
+		"reserve-with-timeout": cmdReserveWithTimeout,
+		"stats-job":            cmdStatsJob,
+		"stats":                cmdStats,
+		"stats-tube":           cmdStatsTube,
+		"touch":                cmdTouch,
+		"use":                  cmdUse,
+		"watch":                cmdWatch,
+	}
+)
+
+func cmdBury(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdBury, 1)
 	cmd.assertNumberOfArguments(1)
 	jobId := jobId(cmd.getUint(0))
 
@@ -70,7 +99,8 @@ func (cmd *cmd) bury() {
 	}
 }
 
-func (cmd *cmd) delete() {
+func cmdDelete(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdDelete, 1)
 	cmd.assertNumberOfArguments(1)
 	jobId := jobId(cmd.getUint(0))
 
@@ -96,7 +126,8 @@ func (cmd *cmd) delete() {
 	}
 }
 
-func (cmd *cmd) ignore() {
+func cmdIgnore(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdIgnore, 1)
 	cmd.assertNumberOfArguments(1)
 
 	name := cmd.args[0]
@@ -112,7 +143,8 @@ func (cmd *cmd) ignore() {
 	}
 }
 
-func (cmd *cmd) kick() {
+func cmdKick(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdKick, 1)
 	cmd.assertNumberOfArguments(1)
 	bound := cmd.getUint(0)
 
@@ -127,7 +159,8 @@ func (cmd *cmd) kick() {
 	cmd.respond(fmt.Sprintf("KICKED %d\r\n", actual))
 }
 
-func (cmd *cmd) listTubes() {
+func cmdListTubes(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdListTubes, 1)
 	cmd.assertNumberOfArguments(0)
 
 	list := make([]string, 0)
@@ -144,7 +177,8 @@ func (cmd *cmd) listTubes() {
 	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
 }
 
-func (cmd *cmd) listTubesWatched() {
+func cmdListTubesWatched(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdListTubesWatched, 1)
 	cmd.assertNumberOfArguments(0)
 
 	list := make([]string, 0)
@@ -160,12 +194,14 @@ func (cmd *cmd) listTubesWatched() {
 
 	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
 }
-func (cmd *cmd) listTubeUsed() {
+func cmdListTubeUsed(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdListTubeUsed, 1)
 	cmd.assertNumberOfArguments(0)
 	cmd.respond(fmt.Sprintf("USING %s\r\n", cmd.client.usedTube.name))
 }
 
-func (cmd *cmd) pauseTube() {
+func cmdPauseTube(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdPauseTube, 1)
 	cmd.assertNumberOfArguments(2)
 
 	tube, found := cmd.server.findTube(cmd.args[0])
@@ -194,7 +230,8 @@ func (cmd *cmd) peekByState(state string) {
 	}
 }
 
-func (cmd *cmd) peek() {
+func cmdPeek(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdPeek, 1)
 	cmd.assertNumberOfArguments(1)
 	jobId := jobId(cmd.getInt(0))
 	job, found := cmd.server.findJob(jobId)
@@ -206,19 +243,23 @@ func (cmd *cmd) peek() {
 	}
 }
 
-func (cmd *cmd) peekBuried() {
+func cmdPeekBuried(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdPeekBuried, 1)
 	cmd.peekByState(jobBuriedState)
 }
 
-func (cmd *cmd) peekDelayed() {
+func cmdPeekDelayed(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdPeekDelayed, 1)
 	cmd.peekByState(jobDelayedState)
 }
 
-func (cmd *cmd) peekReady() {
+func cmdPeekReady(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdPeekReady, 1)
 	cmd.peekByState(jobReadyState)
 }
 
-func (cmd *cmd) put() {
+func cmdPut(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdPut, 1)
 	cmd.assertNumberOfArguments(4)
 
 	priority := uint32(cmd.getInt(0))
@@ -270,12 +311,13 @@ func (cmd *cmd) put() {
 	cmd.respond(fmt.Sprintf("INSERTED %d\r\n", job.id))
 }
 
-func (cmd *cmd) quit() {
+func cmdQuit(cmd *cmd) {
 	cmd.assertNumberOfArguments(0)
+	atomic.AddInt64(&cmd.server.stats.CmdQuit, 1)
 	cmd.closeConn <- true
 }
 
-func (cmd *cmd) reserveCommon() *jobReserveRequest {
+func reserveCommon(cmd *cmd) *jobReserveRequest {
 	request := &jobReserveRequest{
 		client:  cmd.client,
 		success: make(chan *job),
@@ -295,17 +337,20 @@ func (cmd *cmd) reserveCommon() *jobReserveRequest {
 	return request
 }
 
-func (cmd *cmd) reserve() {
+func cmdReserve(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdReserve, 1)
 	cmd.assertNumberOfArguments(0)
 
 	cmd.client.isWorker = true
-	request := cmd.reserveCommon()
+	request := reserveCommon(cmd)
 	job := <-request.success
 	request.cancel <- true
 	cmd.respond(fmt.Sprintf(MSG_RESERVED, job.id, len(job.body), job.body))
 }
 
-func (cmd *cmd) reserveWithTimeout() {
+func cmdReserveWithTimeout(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdReserveWithTimeout, 1)
+
 	cmd.assertNumberOfArguments(1) // seconds
 	seconds := cmd.getInt(0)
 	if seconds < 0 {
@@ -313,7 +358,7 @@ func (cmd *cmd) reserveWithTimeout() {
 	}
 
 	cmd.client.isWorker = true
-	request := cmd.reserveCommon()
+	request := reserveCommon(cmd)
 
 	select {
 	case job := <-request.success:
@@ -325,7 +370,8 @@ func (cmd *cmd) reserveWithTimeout() {
 	}
 }
 
-func (cmd *cmd) stats() {
+func cmdStats(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdStats, 1)
 	cmd.assertNumberOfArguments(0)
 
 	stats := cmd.server.statistics()
@@ -340,7 +386,8 @@ func (cmd *cmd) stats() {
 	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
 }
 
-func (cmd *cmd) statsJob() {
+func cmdStatsJob(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdStatsJob, 1)
 	cmd.assertNumberOfArguments(1)
 
 	jobId := jobId(cmd.getInt(0))
@@ -376,7 +423,8 @@ func (cmd *cmd) statsJob() {
 
 	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
 }
-func (cmd *cmd) statsTube() {
+func cmdStatsTube(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdStatsTube, 1)
 	cmd.assertNumberOfArguments(1)
 
 	tube, found := cmd.server.findTube(cmd.args[0])
@@ -397,7 +445,8 @@ func (cmd *cmd) statsTube() {
 
 	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
 }
-func (cmd *cmd) touch() {
+func cmdTouch(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdTouch, 1)
 	cmd.assertNumberOfArguments(1)
 	jobId := jobId(cmd.getInt(0))
 
@@ -412,7 +461,8 @@ func (cmd *cmd) touch() {
 	cmd.respond(MSG_TOUCHED)
 }
 
-func (cmd *cmd) use() {
+func cmdUse(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdUse, 1)
 	cmd.assertNumberOfArguments(1)
 
 	name := cmd.args[0]
@@ -424,7 +474,8 @@ func (cmd *cmd) use() {
 	cmd.respond(fmt.Sprintf("USING %s\r\n", name))
 }
 
-func (cmd *cmd) watch() {
+func cmdWatch(cmd *cmd) {
+	atomic.AddInt64(&cmd.server.stats.CmdWatch, 1)
 	cmd.assertNumberOfArguments(1)
 
 	name := cmd.args[0]

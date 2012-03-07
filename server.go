@@ -106,23 +106,21 @@ func processCommand(server *server, client *client) (err error) {
 
 	cmd.server = server
 	cmd.client = client
-	pf("→ %#v %#v", cmd.name, cmd.args)
 
-	unknownCommandChan := make(chan bool)
-	go executeCommand(cmd, unknownCommandChan)
+	handler, found := commands[cmd.name]
+	if found {
+		go handler(cmd)
 
-	response := ""
-
-	select {
-	case <-unknownCommandChan:
-		response = MSG_UNKNOWN_COMMAND
-	case response = <-cmd.respondChan:
-	case <-cmd.closeConn:
-		return exception("Close Connection")
+		select {
+		case response := <-cmd.respondChan:
+			client.conn.Write([]byte(response))
+		case <-cmd.closeConn:
+			return exception("Close Connection")
+		}
+	} else {
+		client.conn.Write([]byte(MSG_UNKNOWN_COMMAND))
 	}
 
-	pf("← %#v", response)
-	client.conn.Write([]byte(response))
 	return
 }
 
@@ -134,79 +132,6 @@ func readCommand(reader reader) (cmd *cmd, err error) {
 	}
 
 	return
-}
-
-func executeCommand(cmd *cmd, unknownCommandChan chan bool) {
-	switch cmd.name {
-	case "bury":
-		atomic.AddInt64(&cmd.server.stats.CmdBury, 1)
-		cmd.bury()
-	case "delete":
-		atomic.AddInt64(&cmd.server.stats.CmdDelete, 1)
-		cmd.delete()
-	case "ignore":
-		atomic.AddInt64(&cmd.server.stats.CmdIgnore, 1)
-		cmd.ignore()
-	case "kick":
-		atomic.AddInt64(&cmd.server.stats.CmdKick, 1)
-		cmd.kick()
-	case "list-tubes":
-		atomic.AddInt64(&cmd.server.stats.CmdListTubes, 1)
-		cmd.listTubes()
-	case "list-tubes-watched":
-		atomic.AddInt64(&cmd.server.stats.CmdListTubesWatched, 1)
-		cmd.listTubesWatched()
-	case "list-tube-used":
-		atomic.AddInt64(&cmd.server.stats.CmdListTubeUsed, 1)
-		cmd.listTubeUsed()
-	case "pause-tube":
-		atomic.AddInt64(&cmd.server.stats.CmdPauseTube, 1)
-		cmd.pauseTube()
-	case "peek-buried":
-		atomic.AddInt64(&cmd.server.stats.CmdPeekBuried, 1)
-		cmd.peekBuried()
-	case "peek":
-		atomic.AddInt64(&cmd.server.stats.CmdPeek, 1)
-		cmd.peek()
-	case "peek-delayed":
-		atomic.AddInt64(&cmd.server.stats.CmdPeekDelayed, 1)
-		cmd.peekDelayed()
-	case "peek-ready":
-		atomic.AddInt64(&cmd.server.stats.CmdPeekReady, 1)
-		cmd.peekReady()
-	case "put":
-		atomic.AddInt64(&cmd.server.stats.CmdPut, 1)
-		cmd.put()
-	case "quit":
-		atomic.AddInt64(&cmd.server.stats.CmdQuit, 1)
-		cmd.quit()
-	case "reserve":
-		atomic.AddInt64(&cmd.server.stats.CmdReserve, 1)
-		cmd.reserve()
-	case "reserve-with-timeout":
-		atomic.AddInt64(&cmd.server.stats.CmdReserveWithTimeout, 1)
-		cmd.reserveWithTimeout()
-	case "stats":
-		atomic.AddInt64(&cmd.server.stats.CmdStats, 1)
-		cmd.stats()
-	case "stats-job":
-		atomic.AddInt64(&cmd.server.stats.CmdStatsJob, 1)
-		cmd.statsJob()
-	case "stats-tube":
-		atomic.AddInt64(&cmd.server.stats.CmdStatsTube, 1)
-		cmd.statsTube()
-	case "touch":
-		atomic.AddInt64(&cmd.server.stats.CmdTouch, 1)
-		cmd.touch()
-	case "use":
-		atomic.AddInt64(&cmd.server.stats.CmdUse, 1)
-		cmd.use()
-	case "watch":
-		atomic.AddInt64(&cmd.server.stats.CmdWatch, 1)
-		cmd.watch()
-	default:
-		unknownCommandChan <- true
-	}
 }
 
 func (server *server) exit(status int) {

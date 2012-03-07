@@ -203,7 +203,7 @@ func init() {
 
 			stats, err = i.StatsJob(jobId)
 			Expect(err, ToBeNil)
-			Expect(stats["time-left"], ToBeFloatBetween, 9.99, 9.9999)
+			Expect(stats["time-left"], ToBeFloatBetween, 9.99, 9.999999999)
 
 			err = i.Delete(jobId)
 			Expect(err, ToBeNil)
