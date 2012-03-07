@@ -75,7 +75,7 @@ func init() {
 
 		It("cannot remove the last tube from the watch list", func() {
 			amount, err := i.Ignore("testing")
-			Expect(err, ToEqual, Exception(NOT_IGNORED))
+			Expect(err.Error(), ToEqual, NOT_IGNORED)
 			Expect(amount, ToEqual, uint64(0))
 
 			tubes, err := i.ListTubesWatched()
@@ -149,7 +149,7 @@ func init() {
 
 			It("cannot delete the same job twice", func() {
 				err := i.Delete(jobId)
-				Expect(err, ToEqual, Exception(NOT_FOUND))
+				Expect(err.Error(), ToEqual, NOT_FOUND)
 			})
 		})
 
@@ -162,7 +162,7 @@ func init() {
 			Expect(err, ToBeNil)
 
 			_, _, err = i.ReserveWithTimeout(0)
-			Expect(err, ToEqual, Exception(TIMED_OUT))
+			Expect(err.Error(), ToEqual, TIMED_OUT)
 		})
 	})
 
@@ -448,16 +448,18 @@ func init() {
 	})
 }
 
-func ToBeFloatBetween(actual interface{}, lower, upper float64) (string, bool) {
-	switch actual.(type) {
+func ToBeFloatBetween(f interface{}, lower, upper float64) (string, bool) {
+	var actual float64
+
+	switch f.(type) {
 	case float64:
-		if actual.(float64) > lower && actual.(float64) < upper {
-			return "", true
-		}
+		actual = f.(float64)
 	case int:
-		if float64(actual.(int)) > lower && float64(actual.(int)) < upper {
-			return "", true
-		}
+		actual = float64(f.(int))
+	}
+
+	if actual >= lower && actual <= upper {
+		return "", true
 	}
 	return fmt.Sprintf("    expected: %#v\nto be between %#v and %#v\n", actual, lower, upper), false
 }
