@@ -5,35 +5,15 @@ import (
 	"bytes"
 	"fmt"
 	"launchpad.net/goyaml"
-	"log"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 )
 
-type Instance interface {
-	Delete(jobId uint64) (err error)
-	Ignore(tubeName string) (tubesLeft uint64, err error)
-	Bury(jobId uint64) (err error)
-	Kick(bound int) (actuallyKicked uint64, err error)
-	ListTubes() (tubeNames []string, err error)
-	ListTubesWatched() (tubeNames []string, err error)
-	ListTubeUsed() (tubeName string, err error)
-	Put(priority uint32, delay uint64, ttr uint64, jobData []byte) (jobId uint64, buried bool, err error)
-	Reserve() (jobId uint64, jobData []byte, err error)
-	ReserveWithTimeout(seconds int) (jobId uint64, jobData []byte, err error)
-	StatsJob(jobId uint64) (stats map[string]interface{}, err error)
-	StatsTube(tubeName string) (stats map[string]interface{}, err error)
-	Stats() (stats map[string]interface{}, err error)
-	Touch(jobId uint64) (err error)
-	Watch(tubeName string) (err error)
-}
-
-type instance struct {
-	conn       net.Conn
-	readWriter *bufio.ReadWriter
+type Client struct {
+	Conn       net.Conn
+	ReadWriter *bufio.ReadWriter
 }
 
 const (
@@ -41,9 +21,9 @@ const (
 	DELETED       = "DELETED"
 	DRAINING      = "DRAINING"
 	EXPECTED_CRLF = "EXPECTED_CRLF"
-	KICKED        = "KICKED"
 	INSERTED      = "INSERTED"
 	JOB_TOO_BIG   = "JOB_TOO_BIG"
+	KICKED        = "KICKED"
 	NOT_FOUND     = "NOT_FOUND"
 	NOT_IGNORED   = "NOT_IGNORED"
 	OK            = "OK"
@@ -55,16 +35,16 @@ const (
 )
 
 const (
+	msgBury               = "bury %d\r\n"
 	msgDelete             = "delete %d\r\n"
 	msgIgnore             = "ignore %s\r\n"
+	msgKick               = "kick %d\r\n"
 	msgListTubes          = "list-tubes\r\n"
 	msgListTubesWatched   = "list-tubes-watched\r\n"
 	msgListTubeUsed       = "list-tube-used\r\n"
 	msgPut                = "put %d %d %d %d\r\n%s\r\n"
 	msgReserve            = "reserve\r\n"
-	msgKick               = "kick %d\r\n"
 	msgReserveWithTimeout = "reserve-with-timeout %d\r\n"
-	msgBury               = "bury %d\r\n"
 	msgStatsJob           = "stats-job %d\r\n"
 	msgStats              = "stats\r\n"
 	msgStatsTube          = "stats-tube %s\r\n"
@@ -72,59 +52,55 @@ const (
 	msgWatch              = "watch %s\r\n"
 )
 
-var (
-	logger = log.New(os.Stdout, "stalkc ", log.LstdFlags)
-)
+type exception string
 
-type Exception string
-
-func (e Exception) Error() string {
+func (e exception) Error() string {
 	return string(e)
 }
 
-func Dial(hostAndPort string) (i Instance, err error) {
+func Dial(hostAndPort string) (i *Client, err error) {
 	conn, err := net.Dial("tcp", hostAndPort)
 	if err == nil {
-		i = newInstance(conn)
+		i = newClient(conn)
 	}
 	return
 }
 
-func DialTimeout(hostAndPort string, timeout time.Duration) (i Instance, err error) {
+func DialTimeout(hostAndPort string, timeout time.Duration) (i *Client, err error) {
 	conn, err := net.DialTimeout("tcp", hostAndPort, timeout)
 	if err == nil {
-		i = newInstance(conn)
+		i = newClient(conn)
 	}
 	return
 }
 
-func newInstance(conn net.Conn) (i Instance) {
+func newClient(conn net.Conn) (i *Client) {
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
-	return &instance{
-		conn:       conn,
-		readWriter: bufio.NewReadWriter(r, w),
+	return &Client{
+		Conn:       conn,
+		ReadWriter: bufio.NewReadWriter(r, w),
 	}
 }
 
-func (i *instance) write(line string) (err error) {
-	n, err := i.readWriter.WriteString(line)
-	i.readWriter.Flush()
+func (i *Client) write(line string) (err error) {
+	n, err := i.ReadWriter.WriteString(line)
+	i.ReadWriter.Flush()
 
 	if err == nil && n != len(line) {
-		err = Exception(fmt.Sprintf("wrote only %d bytes of %d", n, len(line)))
+		err = exception(fmt.Sprintf("wrote only %d bytes of %d", n, len(line)))
 	}
 
 	return
 }
 
-func (i *instance) readLine() (line string, err error) {
+func (i *Client) readLine() (line string, err error) {
 	lineBuf := new(bytes.Buffer)
 	var linePart []byte
 	isPrefix := true
 
 	for isPrefix {
-		linePart, isPrefix, err = i.readWriter.ReadLine()
+		linePart, isPrefix, err = i.ReadWriter.ReadLine()
 		if err != nil {
 			return line, err
 		}
@@ -133,7 +109,7 @@ func (i *instance) readLine() (line string, err error) {
 	return lineBuf.String(), nil
 }
 
-func (i *instance) wordsCmd(command string) (words []string, err error) {
+func (i *Client) wordsCmd(command string) (words []string, err error) {
 	err = i.write(command)
 	if err != nil {
 		return
@@ -149,7 +125,7 @@ func (i *instance) wordsCmd(command string) (words []string, err error) {
 	return
 }
 
-func (i *instance) yamlCmd(command string, dest interface{}) (err error) {
+func (i *Client) yamlCmd(command string, dest interface{}) (err error) {
 	err = i.write(command)
 	if err != nil {
 		return
@@ -163,7 +139,7 @@ func (i *instance) yamlCmd(command string, dest interface{}) (err error) {
 	words := strings.Split(line, " ")
 
 	if words[0] != "OK" {
-		return Exception(words[0])
+		return exception(words[0])
 	}
 
 	bodyLen, err := strconv.ParseInt(words[1], 10, 64)
@@ -172,19 +148,19 @@ func (i *instance) yamlCmd(command string, dest interface{}) (err error) {
 	}
 
 	rawYaml := make([]byte, bodyLen+2)
-	n, err := i.readWriter.Read(rawYaml)
+	n, err := i.ReadWriter.Read(rawYaml)
 	if err != nil {
 		return
 	}
 	if n != len(rawYaml) {
-		err = Exception(fmt.Sprintf("read only %d bytes of %d", n, len(rawYaml)))
+		err = exception(fmt.Sprintf("read only %d bytes of %d", n, len(rawYaml)))
 	}
 
 	err = goyaml.Unmarshal(rawYaml[:len(rawYaml)-1], dest)
 	return err
 }
 
-func (i *instance) readJob(args []string) (jobId uint64, jobData []byte, err error) {
+func (i *Client) readJob(args []string) (jobId uint64, jobData []byte, err error) {
 	jobId, err = strconv.ParseUint(args[0], 10, 64)
 	if err != nil {
 		return
@@ -198,12 +174,12 @@ func (i *instance) readJob(args []string) (jobId uint64, jobData []byte, err err
 
 	jobData = make([]byte, jobDataLen+2)
 	var n int
-	n, err = i.readWriter.Read(jobData)
+	n, err = i.ReadWriter.Read(jobData)
 	if err != nil {
 		return
 	}
 	if n != len(jobData) {
-		err = Exception(fmt.Sprintf("read only %d bytes of %d", n, len(jobData)))
+		err = exception(fmt.Sprintf("read only %d bytes of %d", n, len(jobData)))
 		return
 	}
 
@@ -211,22 +187,22 @@ func (i *instance) readJob(args []string) (jobId uint64, jobData []byte, err err
 	return
 }
 
-func (i *instance) Watch(tubeName string) (err error) {
+func (i *Client) Watch(tubeName string) (err error) {
 	words, err := i.wordsCmd(fmt.Sprintf(msgWatch, tubeName))
 	if err == nil {
 		if words[0] != OK {
-			err = Exception(words[0])
+			err = exception(words[0])
 		}
 	}
 
 	return
 }
 
-func (i *instance) Bury(jobId uint64) (err error) {
+func (i *Client) Bury(jobId uint64) (err error) {
 	words, err := i.wordsCmd(fmt.Sprintf(msgBury, jobId))
 	if err == nil {
 		if words[0] != BURIED {
-			err = Exception(words[0])
+			err = exception(words[0])
 		}
 	}
 
@@ -241,42 +217,42 @@ Otherwise it will kick delayed jobs.
 
 The bound argument indicates the maximum number of jobs to kick.
 */
-func (i *instance) Kick(bound int) (actuallyKicked uint64, err error) {
+func (i *Client) Kick(bound int) (actuallyKicked uint64, err error) {
 	words, err := i.wordsCmd(fmt.Sprintf(msgKick, bound))
 	if err == nil {
 		if words[0] == KICKED {
 			actuallyKicked, err = strconv.ParseUint(words[1], 10, 64)
 		} else {
-			err = Exception(words[0])
+			err = exception(words[0])
 		}
 	}
 	return
 }
 
-func (i *instance) ListTubes() (tubes []string, err error) {
+func (i *Client) ListTubes() (tubes []string, err error) {
 	err = i.yamlCmd(msgListTubes, &tubes)
 	return
 }
 
-func (i *instance) ListTubesWatched() (tubeNames []string, err error) {
+func (i *Client) ListTubesWatched() (tubeNames []string, err error) {
 	err = i.yamlCmd(msgListTubesWatched, &tubeNames)
 	return
 }
 
-func (i *instance) ListTubeUsed() (tubeName string, err error) {
+func (i *Client) ListTubeUsed() (tubeName string, err error) {
 	words, err := i.wordsCmd(msgListTubeUsed)
 	if err == nil {
 		if words[0] == USING {
 			tubeName = words[1]
 		} else {
-			err = Exception(words[0])
+			err = exception(words[0])
 		}
 	}
 
 	return
 }
 
-func (i *instance) Ignore(tubeName string) (tubesLeft uint64, err error) {
+func (i *Client) Ignore(tubeName string) (tubesLeft uint64, err error) {
 	words, err := i.wordsCmd(fmt.Sprintf(msgIgnore, tubeName))
 	if err != nil {
 		return
@@ -286,15 +262,15 @@ func (i *instance) Ignore(tubeName string) (tubesLeft uint64, err error) {
 	case WATCHING:
 		return strconv.ParseUint(words[1], 10, 64)
 	case NOT_IGNORED:
-		err = Exception(NOT_IGNORED)
+		err = exception(NOT_IGNORED)
 	default:
-		err = Exception(words[0])
+		err = exception(words[0])
 	}
 
 	return
 }
 
-func (i *instance) Put(priority uint32, delay, ttr uint64, data []byte) (jobId uint64, buried bool, err error) {
+func (i *Client) Put(priority uint32, delay, ttr uint64, data []byte) (jobId uint64, buried bool, err error) {
 	words, err := i.wordsCmd(fmt.Sprintf(msgPut, priority, delay, ttr, len(data), data))
 	if err != nil {
 		return
@@ -307,17 +283,17 @@ func (i *instance) Put(priority uint32, delay, ttr uint64, data []byte) (jobId u
 		jobId, err = strconv.ParseUint(words[1], 10, 64)
 		buried = true
 	case EXPECTED_CRLF:
-		err = Exception(EXPECTED_CRLF)
+		err = exception(EXPECTED_CRLF)
 	case JOB_TOO_BIG:
-		err = Exception(JOB_TOO_BIG)
+		err = exception(JOB_TOO_BIG)
 	case DRAINING:
-		err = Exception(DRAINING)
+		err = exception(DRAINING)
 	}
 
 	return
 }
 
-func (i *instance) Reserve() (jobId uint64, jobData []byte, err error) {
+func (i *Client) Reserve() (jobId uint64, jobData []byte, err error) {
 	words, err := i.wordsCmd(msgReserve)
 	if err != nil {
 		return
@@ -327,13 +303,13 @@ func (i *instance) Reserve() (jobId uint64, jobData []byte, err error) {
 	case RESERVED:
 		jobId, jobData, err = i.readJob(words[1:3])
 	default:
-		err = Exception(words[0])
+		err = exception(words[0])
 	}
 
 	return
 }
 
-func (i *instance) ReserveWithTimeout(timeout int) (jobId uint64, jobData []byte, err error) {
+func (i *Client) ReserveWithTimeout(timeout int) (jobId uint64, jobData []byte, err error) {
 	words, err := i.wordsCmd(fmt.Sprintf(msgReserveWithTimeout, timeout))
 	if err != nil {
 		return
@@ -343,44 +319,44 @@ func (i *instance) ReserveWithTimeout(timeout int) (jobId uint64, jobData []byte
 	case RESERVED:
 		jobId, jobData, err = i.readJob(words[1:len(words)])
 	default:
-		err = Exception(words[0])
+		err = exception(words[0])
 	}
 
 	return
 }
 
-func (i *instance) Touch(jobId uint64) (err error) {
+func (i *Client) Touch(jobId uint64) (err error) {
 	words, err := i.wordsCmd(fmt.Sprintf(msgTouch, jobId))
 	if err == nil {
 		if words[0] != TOUCHED {
-			err = Exception(words[0])
+			err = exception(words[0])
 		}
 	}
 
 	return
 }
 
-func (i *instance) Delete(jobId uint64) (err error) {
+func (i *Client) Delete(jobId uint64) (err error) {
 	words, err := i.wordsCmd(fmt.Sprintf(msgDelete, jobId))
 	if err == nil {
 		if words[0] != DELETED {
-			err = Exception(words[0])
+			err = exception(words[0])
 		}
 	}
 	return
 }
 
-func (i *instance) StatsJob(jobId uint64) (stats map[string]interface{}, err error) {
+func (i *Client) StatsJob(jobId uint64) (stats map[string]interface{}, err error) {
 	err = i.yamlCmd(fmt.Sprintf(msgStatsJob, jobId), &stats)
 	return
 }
 
-func (i *instance) StatsTube(tubeName string) (stats map[string]interface{}, err error) {
+func (i *Client) StatsTube(tubeName string) (stats map[string]interface{}, err error) {
 	err = i.yamlCmd(fmt.Sprintf(msgStatsTube, tubeName), &stats)
 	return
 }
 
-func (i *instance) Stats() (stats map[string]interface{}, err error) {
+func (i *Client) Stats() (stats map[string]interface{}, err error) {
 	err = i.yamlCmd(msgStats, &stats)
 	return
 }
