@@ -1,3 +1,4 @@
+// gostalkc is a client library speaking the beanstalk work queue protocol.
 package gostalkc
 
 import (
@@ -11,6 +12,8 @@ import (
 	"time"
 )
 
+// The Client provides you with the net.Conn and bufio.ReadWriter used for the connection to the server.
+// It can be initialized by Dial(hostAndPort) or DialTimeout(hostAndPort, timeout).
 type Client struct {
 	Conn       net.Conn
 	ReadWriter *bufio.ReadWriter
@@ -63,6 +66,8 @@ func (e exception) Error() string {
 	return string(e)
 }
 
+// Dial opens a connection to hostAndPort (like "127.0.0.1:11300") and returns
+// a client instance or an error.
 func Dial(hostAndPort string) (i *Client, err error) {
 	conn, err := net.Dial("tcp", hostAndPort)
 	if err == nil {
@@ -71,6 +76,9 @@ func Dial(hostAndPort string) (i *Client, err error) {
 	return
 }
 
+// DialTimeout opens a connection to hostAndPort (like "127.0.0.1:11300") and
+// returns a client instance or an error.
+// Returns an error if the connection cannot be established within the timeout.
 func DialTimeout(hostAndPort string, timeout time.Duration) (i *Client, err error) {
 	conn, err := net.DialTimeout("tcp", hostAndPort, timeout)
 	if err == nil {

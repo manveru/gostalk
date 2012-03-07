@@ -15,17 +15,17 @@ import (
 )
 
 type jobResponse struct {
-	id   JobId
+	id   jobId
 	body string
 }
 
-func sendCommand(conn Conn, raw string) {
+func sendCommand(conn conn, raw string) {
 	n, err := fmt.Fprintf(conn, raw+"\r\n")
 	Expect(err, ToBeNil)
 	Expect(n, ToEqual, len(raw)+2)
 }
 
-func sendCommands(conn Conn, commands []string) (responses []string) {
+func sendCommands(conn conn, commands []string) (responses []string) {
 	for _, command := range commands {
 		sendCommand(conn, command)
 	}
@@ -33,7 +33,7 @@ func sendCommands(conn Conn, commands []string) (responses []string) {
 	return
 }
 
-func readResponseWithBody(reader Reader, body interface{}) {
+func readResponseWithBody(reader reader, body interface{}) {
 	line := readLine(reader)
 	bodyLen, err := strconv.ParseInt(string(line[3:]), 10, 64)
 	Expect(err, ToBeNil)
@@ -46,12 +46,12 @@ func readResponseWithBody(reader Reader, body interface{}) {
 	Expect(err, ToBeNil)
 }
 
-func readReserveResponse(reader Reader) jobResponse {
+func readReserveResponse(reader reader) jobResponse {
 	line := readLine(reader)
 	lineParts := strings.Split(string(line), " ")
 	Expect(lineParts[0], ToEqual, "RESERVED")
 
-	jobId, err := strconv.ParseInt(lineParts[1], 10, 64)
+	id, err := strconv.ParseInt(lineParts[1], 10, 64)
 	Expect(err, ToBeNil)
 
 	bodyLen, err := strconv.ParseInt(lineParts[2], 10, 64)
@@ -61,14 +61,14 @@ func readReserveResponse(reader Reader) jobResponse {
 	n, err := reader.Read(jobBody)
 	Expect(err, ToBeNil)
 	Expect(int64(n), ToEqual, bodyLen+2)
-	return jobResponse{JobId(jobId), string(jobBody[:bodyLen])}
+	return jobResponse{jobId(id), string(jobBody[:bodyLen])}
 }
 
-func readResponseWithoutBody(reader Reader) (line string) {
+func readResponseWithoutBody(reader reader) (line string) {
 	return string(readLine(reader))
 }
 
-func readLine(reader Reader) []byte {
+func readLine(reader reader) []byte {
 	line, isPrefix, err := reader.ReadLine()
 	Expect(err, ToBeNil)
 	Expect(isPrefix, ToEqual, false)
