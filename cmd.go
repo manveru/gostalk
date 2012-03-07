@@ -8,57 +8,46 @@ import (
 	"time"
 )
 
-type cmd struct {
-	server      *server
-	client      *client
-	name        string
-	args        []string
-	respondChan chan string
-	closeConn   chan bool
-}
+type args []string
 
-func newCmd(name string, args []string) *cmd {
-	return &cmd{
-		respondChan: make(chan string),
-		closeConn:   make(chan bool),
-		name:        name,
-		args:        args,
-	}
-}
-
-func (cmd *cmd) respond(res string) {
-	cmd.respondChan <- res
-}
-
-func (cmd *cmd) assertNumberOfArguments(n int) {
-	if len(cmd.args) != n {
-		pf("Wrong number of arguments: expected %d, got %d", n, len(cmd.args))
-		cmd.respond(MSG_BAD_FORMAT)
-	}
-}
-
-func (cmd *cmd) getInt(idx int) (to int64) {
-	from := cmd.args[idx]
-	to, err := strconv.ParseInt(from, 10, 64)
+func (args args) getInt(idx int) (output int64) {
+	output, err := strconv.ParseInt(args[idx], 10, 64)
 	if err != nil {
-		pf("cmd.getInt(%#v) : %v", from, err)
-		cmd.respond(MSG_BAD_FORMAT)
+		pf("args.getInt(%#v) : %v", args[idx], err)
+		panic(MSG_BAD_FORMAT)
 	}
 	return
 }
 
-func (cmd *cmd) getUint(idx int) (to uint64) {
-	from := cmd.args[idx]
-	to, err := strconv.ParseUint(from, 10, 64)
+func (args args) getUint(idx int) (output uint64) {
+	output, err := strconv.ParseUint(args[idx], 10, 64)
 	if err != nil {
-		pf("cmd.getInt(%#v) : %v", from, err)
-		cmd.respond(MSG_BAD_FORMAT)
+		pf("args.getInt(%#v) : %v", args[idx], err)
+		panic(MSG_BAD_FORMAT)
 	}
 	return
+}
+
+func (args args) getJobId(idx int) jobId {
+	output, err := strconv.ParseUint(args[idx], 10, 64)
+	if err != nil {
+		pf("args.getInt(%#v) : %v", args[idx], err)
+		panic(MSG_BAD_FORMAT)
+	}
+	return jobId(output)
+}
+
+func (args args) getName(idx int) string {
+	name := args[idx]
+	if !NAME_CHARS.MatchString(name) {
+		panic(MSG_BAD_FORMAT)
+	}
+
+	return name
 }
 
 var (
-	commands = map[string]func(*cmd){
+	commands = map[string]func(*client, args) string{
 		"bury":                 cmdBury,
 		"delete":               cmdDelete,
 		"ignore":               cmdIgnore,
@@ -84,247 +73,222 @@ var (
 	}
 )
 
-func cmdBury(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdBury, 1)
-	cmd.assertNumberOfArguments(1)
-	jobId := jobId(cmd.getUint(0))
+func cmdBury(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdBury, 1)
 
-	job, found := cmd.server.jobs[jobId]
-	if found && job.state == jobReservedState && job.client == cmd.client {
+	job, found := client.server.jobs[args.getJobId(0)]
+	if found && job.state == jobReservedState && job.client == client {
 		job.bury()
-		cmd.respond(MSG_BURIED)
-	} else {
-		cmd.respond(MSG_NOT_FOUND)
-		return
+		return MSG_BURIED
 	}
+
+	return MSG_NOT_FOUND
 }
 
-func cmdDelete(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdDelete, 1)
-	cmd.assertNumberOfArguments(1)
-	jobId := jobId(cmd.getUint(0))
+func cmdDelete(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdDelete, 1)
 
-	job, found := cmd.server.jobs[jobId]
+	job, found := client.server.jobs[args.getJobId(0)]
 	if !found {
-		cmd.respond(MSG_NOT_FOUND)
-		return
+		return MSG_NOT_FOUND
 	}
 
 	switch job.state {
 	case jobReservedState:
-		if job.client == cmd.client {
-			job.deleteFrom(cmd.server)
-			cmd.respond(MSG_DELETED)
-		} else {
-			cmd.respond(MSG_NOT_FOUND)
+		if job.client == client {
+			job.deleteFrom(client.server)
+			return MSG_DELETED
 		}
 	case jobBuriedState, jobDelayedState, jobReadyState:
-		job.deleteFrom(cmd.server)
-		cmd.respond(MSG_DELETED)
-	default:
-		cmd.respond(MSG_NOT_FOUND)
+		job.deleteFrom(client.server)
+		return MSG_DELETED
 	}
+
+	return MSG_NOT_FOUND
 }
 
-func cmdIgnore(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdIgnore, 1)
-	cmd.assertNumberOfArguments(1)
+func cmdIgnore(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdIgnore, 1)
 
-	name := cmd.args[0]
-	if !NAME_CHARS.MatchString(name) {
-		cmd.respond(MSG_BAD_FORMAT)
-	}
+	name := args.getName(0)
 
-	ignored, totalTubes := cmd.client.ignoreTube(name)
+	ignored, totalTubes := client.ignoreTube(name)
 	if ignored {
-		cmd.respond(fmt.Sprintf("WATCHING %d\r\n", totalTubes))
-	} else {
-		cmd.respond("NOT_IGNORED\r\n")
+		return fmt.Sprintf("WATCHING %d\r\n", totalTubes)
 	}
+	return "NOT_IGNORED\r\n"
 }
 
-func cmdKick(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdKick, 1)
-	cmd.assertNumberOfArguments(1)
-	bound := cmd.getUint(0)
+func cmdKick(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdKick, 1)
+	bound := args.getUint(0)
 
 	jobKick := &jobKickRequest{
 		bound:   int(bound),
 		success: make(chan int),
 	}
 
-	cmd.client.usedTube.jobKick <- jobKick
+	client.usedTube.jobKick <- jobKick
 	actual := <-jobKick.success
 
-	cmd.respond(fmt.Sprintf("KICKED %d\r\n", actual))
+	return fmt.Sprintf("KICKED %d\r\n", actual)
 }
 
-func cmdListTubes(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdListTubes, 1)
-	cmd.assertNumberOfArguments(0)
+func cmdListTubes(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdListTubes, 1)
 
 	list := make([]string, 0)
-	for key := range cmd.server.tubes {
+	for key := range client.server.tubes {
 		list = append(list, key)
 	}
 
 	yaml, err := toYaml(list)
 	if err != nil {
 		p(err)
-		cmd.respond(MSG_INTERNAL_ERROR)
+		return MSG_INTERNAL_ERROR
 	}
 
-	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
+	return fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml)
 }
 
-func cmdListTubesWatched(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdListTubesWatched, 1)
-	cmd.assertNumberOfArguments(0)
+func cmdListTubesWatched(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdListTubesWatched, 1)
 
 	list := make([]string, 0)
-	for _, tube := range cmd.client.watchedTubes {
+	for _, tube := range client.watchedTubes {
 		list = append(list, tube.name)
 	}
 
 	yaml, err := toYaml(list)
 	if err != nil {
 		p(err)
-		cmd.respond(MSG_INTERNAL_ERROR)
+		return MSG_INTERNAL_ERROR
 	}
 
-	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
+	return fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml)
 }
-func cmdListTubeUsed(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdListTubeUsed, 1)
-	cmd.assertNumberOfArguments(0)
-	cmd.respond(fmt.Sprintf("USING %s\r\n", cmd.client.usedTube.name))
+func cmdListTubeUsed(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdListTubeUsed, 1)
+	return fmt.Sprintf("USING %s\r\n", client.usedTube.name)
 }
 
-func cmdPauseTube(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdPauseTube, 1)
-	cmd.assertNumberOfArguments(2)
+func cmdPauseTube(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdPauseTube, 1)
 
-	tube, found := cmd.server.findTube(cmd.args[0])
+	tube, found := client.server.findTube(args.getName(0))
 	if !found {
-		cmd.respond(MSG_NOT_FOUND)
-		return
+		return MSG_NOT_FOUND
 	}
 
-	delay := cmd.getInt(1)
+	delay := args.getInt(1)
 	tube.tubePause <- time.Duration(delay) * time.Second
-	cmd.respond(MSG_PAUSED)
+	return MSG_PAUSED
 }
 
-func (cmd *cmd) peekByState(state string) {
-	cmd.assertNumberOfArguments(0)
+func peekByState(client *client, state string) string {
 	request := &jobPeekRequest{
 		state:   state,
 		success: make(chan *job),
 	}
-	cmd.client.usedTube.jobPeek <- request
+	client.usedTube.jobPeek <- request
 	job := <-request.success
-	if job == nil {
-		cmd.respond(MSG_NOT_FOUND)
-	} else {
-		cmd.respond(fmt.Sprintf(MSG_PEEK_FOUND, job.id, len(job.body), job.body))
+	if job != nil {
+		return fmt.Sprintf(MSG_PEEK_FOUND, job.id, len(job.body), job.body)
 	}
+	return MSG_NOT_FOUND
 }
 
-func cmdPeek(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdPeek, 1)
-	cmd.assertNumberOfArguments(1)
-	jobId := jobId(cmd.getInt(0))
-	job, found := cmd.server.findJob(jobId)
+func cmdPeek(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdPeek, 1)
+	job, found := client.server.findJob(args.getJobId(0))
 
 	if found {
-		cmd.respond(fmt.Sprintf(MSG_PEEK_FOUND, job.id, len(job.body), job.body))
-	} else {
-		cmd.respond(MSG_NOT_FOUND)
+		return fmt.Sprintf(MSG_PEEK_FOUND, job.id, len(job.body), job.body)
 	}
+	return MSG_NOT_FOUND
 }
 
-func cmdPeekBuried(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdPeekBuried, 1)
-	cmd.peekByState(jobBuriedState)
+func cmdPeekBuried(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdPeekBuried, 1)
+	return peekByState(client, jobBuriedState)
 }
 
-func cmdPeekDelayed(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdPeekDelayed, 1)
-	cmd.peekByState(jobDelayedState)
+func cmdPeekDelayed(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdPeekDelayed, 1)
+	return peekByState(client, jobDelayedState)
 }
 
-func cmdPeekReady(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdPeekReady, 1)
-	cmd.peekByState(jobReadyState)
+func cmdPeekReady(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdPeekReady, 1)
+	return peekByState(client, jobReadyState)
 }
 
-func cmdPut(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdPut, 1)
-	cmd.assertNumberOfArguments(4)
+func cmdPut(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdPut, 1)
 
-	priority := uint32(cmd.getInt(0))
+	priority := uint32(args.getInt(0))
 	if priority < 0 {
 		priority = 0
 	} else if priority > 4294967295 {
 		priority = 4294967295
 	}
-	delay := cmd.getInt(1)
-	ttr := cmd.getInt(2)
+	delay := args.getInt(1)
+	ttr := args.getInt(2)
 	if ttr < 1 {
 		ttr = 1
 	}
-	bodySize := cmd.getInt(3)
+	bodySize := args.getInt(3)
 
 	if bodySize > JOB_DATA_SIZE_LIMIT {
-		cmd.respond(MSG_JOB_TOO_BIG)
+		return MSG_JOB_TOO_BIG
 	}
 
 	body := make([]byte, bodySize)
-	_, err := io.ReadFull(cmd.client.reader, body)
+	_, err := io.ReadFull(client.reader, body)
 	if err != nil {
 		pf("io.ReadFull : %#v", err)
-		cmd.respond(MSG_INTERNAL_ERROR)
+		return MSG_INTERNAL_ERROR
 	}
 	rn := make([]byte, 2)
-	_, err = io.ReadAtLeast(cmd.client.reader, rn, 2)
+	_, err = io.ReadAtLeast(client.reader, rn, 2)
 	if err != nil {
 		if err.Error() == "ErrUnexpextedEOF" {
-			cmd.respond(MSG_EXPECTED_CRLF)
+			return MSG_EXPECTED_CRLF
 		} else {
 			pf("io.ReadAtLeast : %#v", err)
-			cmd.respond(MSG_INTERNAL_ERROR)
+			return MSG_INTERNAL_ERROR
 		}
 	}
 
 	if rn[0] != '\r' || rn[1] != '\n' {
-		cmd.respond(MSG_EXPECTED_CRLF)
+		return MSG_EXPECTED_CRLF
 	}
 
-	tube := cmd.client.usedTube
+	tube := client.usedTube
 
-	id := <-cmd.server.getJobId
+	id := <-client.server.getJobId
 	job := newJob(id, priority, delay, ttr, body)
 
 	tube.jobSupply <- job
-	cmd.server.jobs[job.id] = job
-	cmd.client.isProducer = true
-	cmd.respond(fmt.Sprintf("INSERTED %d\r\n", job.id))
+	client.server.jobs[job.id] = job
+	client.isProducer = true
+	return fmt.Sprintf("INSERTED %d\r\n", job.id)
 }
 
-func cmdQuit(cmd *cmd) {
-	cmd.assertNumberOfArguments(0)
-	atomic.AddInt64(&cmd.server.stats.CmdQuit, 1)
-	cmd.closeConn <- true
+func cmdQuit(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdQuit, 1)
+	client.conn.Close()
+	return ""
 }
 
-func reserveCommon(cmd *cmd) *jobReserveRequest {
+func reserveCommon(c *client, args args) *jobReserveRequest {
 	request := &jobReserveRequest{
-		client:  cmd.client,
+		client:  c,
 		success: make(chan *job),
 		cancel:  make(chan bool, 1),
 	}
 
-	for _, watchedTube := range cmd.client.watchedTubes {
+	for _, watchedTube := range c.watchedTubes {
 		go func(t *tube, r *jobReserveRequest) {
 			select {
 			case t.jobDemand <- r:
@@ -337,66 +301,60 @@ func reserveCommon(cmd *cmd) *jobReserveRequest {
 	return request
 }
 
-func cmdReserve(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdReserve, 1)
-	cmd.assertNumberOfArguments(0)
+func cmdReserve(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdReserve, 1)
 
-	cmd.client.isWorker = true
-	request := reserveCommon(cmd)
+	client.isWorker = true
+	request := reserveCommon(client, args)
 	job := <-request.success
 	request.cancel <- true
-	cmd.respond(fmt.Sprintf(MSG_RESERVED, job.id, len(job.body), job.body))
+	return fmt.Sprintf(MSG_RESERVED, job.id, len(job.body), job.body)
 }
 
-func cmdReserveWithTimeout(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdReserveWithTimeout, 1)
+func cmdReserveWithTimeout(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdReserveWithTimeout, 1)
 
-	cmd.assertNumberOfArguments(1) // seconds
-	seconds := cmd.getInt(0)
+	seconds := args.getInt(0)
 	if seconds < 0 {
 		seconds = 0
 	}
 
-	cmd.client.isWorker = true
-	request := reserveCommon(cmd)
+	client.isWorker = true
+	request := reserveCommon(client, args)
 
 	select {
 	case job := <-request.success:
-		cmd.respond(fmt.Sprintf(MSG_RESERVED, job.id, len(job.body), job.body))
+		response = fmt.Sprintf(MSG_RESERVED, job.id, len(job.body), job.body)
 		request.cancel <- true
 	case <-time.After(time.Duration(seconds) * time.Second):
-		cmd.respond(MSG_TIMED_OUT)
+		response = MSG_TIMED_OUT
 		request.cancel <- true
 	}
+
+	return response
 }
 
-func cmdStats(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdStats, 1)
-	cmd.assertNumberOfArguments(0)
+func cmdStats(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdStats, 1)
 
-	stats := cmd.server.statistics()
+	stats := client.server.statistics()
 	p(stats)
 	yaml, err := toYaml(stats)
 	if err != nil {
 		p(err)
-		cmd.respond(MSG_INTERNAL_ERROR)
-		return
+		return MSG_INTERNAL_ERROR
 	}
 
-	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
+	return fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml)
 }
 
-func cmdStatsJob(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdStatsJob, 1)
-	cmd.assertNumberOfArguments(1)
+func cmdStatsJob(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdStatsJob, 1)
 
-	jobId := jobId(cmd.getInt(0))
-
-	job, found := cmd.server.findJob(jobId)
+	job, found := client.server.findJob(args.getJobId(0))
 
 	if !found {
-		cmd.respond(MSG_NOT_FOUND)
-		return
+		return MSG_NOT_FOUND
 	}
 
 	stats := &map[string]interface{}{
@@ -417,21 +375,18 @@ func cmdStatsJob(cmd *cmd) {
 	yaml, err := toYaml(stats)
 	if err != nil {
 		p(err)
-		cmd.respond(MSG_INTERNAL_ERROR)
-		return
+		return MSG_INTERNAL_ERROR
 	}
 
-	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
+	return fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml)
 }
-func cmdStatsTube(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdStatsTube, 1)
-	cmd.assertNumberOfArguments(1)
+func cmdStatsTube(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdStatsTube, 1)
 
-	tube, found := cmd.server.findTube(cmd.args[0])
+	tube, found := client.server.findTube(args.getName(0))
 
 	if !found {
-		cmd.respond(MSG_NOT_FOUND)
-		return
+		return MSG_NOT_FOUND
 	}
 
 	stats := tube.statistics()
@@ -439,50 +394,36 @@ func cmdStatsTube(cmd *cmd) {
 	yaml, err := toYaml(stats)
 	if err != nil {
 		p(err)
-		cmd.respond(MSG_INTERNAL_ERROR)
-		return
+		return MSG_INTERNAL_ERROR
 	}
 
-	cmd.respond(fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml))
+	return fmt.Sprintf("OK %d\r\n%s\r\n", len(yaml), yaml)
 }
-func cmdTouch(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdTouch, 1)
-	cmd.assertNumberOfArguments(1)
-	jobId := jobId(cmd.getInt(0))
+func cmdTouch(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdTouch, 1)
 
-	job, found := cmd.server.findJob(jobId)
+	job, found := client.server.findJob(args.getJobId(0))
 
 	if !found {
-		cmd.respond(MSG_NOT_FOUND)
-		return
+		return MSG_NOT_FOUND
 	}
 
 	job.touch()
-	cmd.respond(MSG_TOUCHED)
+	return MSG_TOUCHED
 }
 
-func cmdUse(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdUse, 1)
-	cmd.assertNumberOfArguments(1)
+func cmdUse(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdUse, 1)
 
-	name := cmd.args[0]
-	if !NAME_CHARS.MatchString(name) {
-		cmd.respond(MSG_BAD_FORMAT)
-	}
+	name := args.getName(0)
 
-	cmd.client.usedTube = cmd.server.findOrCreateTube(name)
-	cmd.respond(fmt.Sprintf("USING %s\r\n", name))
+	client.usedTube = client.server.findOrCreateTube(name)
+	return fmt.Sprintf("USING %s\r\n", name)
 }
 
-func cmdWatch(cmd *cmd) {
-	atomic.AddInt64(&cmd.server.stats.CmdWatch, 1)
-	cmd.assertNumberOfArguments(1)
+func cmdWatch(client *client, args args) (response string) {
+	atomic.AddInt64(&client.server.stats.CmdWatch, 1)
 
-	name := cmd.args[0]
-	if !NAME_CHARS.MatchString(name) {
-		cmd.respond(MSG_BAD_FORMAT)
-	}
-
-	cmd.client.watchTube(name)
-	cmd.respond("OK\r\n")
+	client.watchTube(args.getName(0))
+	return "OK\r\n"
 }

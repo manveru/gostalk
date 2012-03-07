@@ -72,7 +72,7 @@ func (server *server) accept(conn conn) {
 	client := newClient(server, conn)
 
 	for {
-		err := processCommand(server, client)
+		err := processCommand(client)
 		if err != nil {
 			pf("Error in processCommand: %#v", err)
 			return
@@ -91,32 +91,19 @@ func (server *server) acceptFinalize(conn conn) {
 	atomic.AddInt64(&server.stats.CurrentConnections, -1)
 }
 
-func processCommand(server *server, client *client) (err error) {
-	cmd, err := readCommand(client.reader)
+func processCommand(client *client) (err error) {
+	name, args, err := readCommand(client.reader)
 
 	if err != nil {
 		p("readCommand", err)
 		return
 	}
 
-	defer func() {
-		close(cmd.closeConn)
-		close(cmd.respondChan)
-	}()
+	handler, found := commands[name]
 
-	cmd.server = server
-	cmd.client = client
-
-	handler, found := commands[cmd.name]
 	if found {
-		go handler(cmd)
-
-		select {
-		case response := <-cmd.respondChan:
-			client.conn.Write([]byte(response))
-		case <-cmd.closeConn:
-			return exception("Close Connection")
-		}
+		response := handler(client, args)
+		client.conn.Write([]byte(response))
 	} else {
 		client.conn.Write([]byte(MSG_UNKNOWN_COMMAND))
 	}
@@ -124,11 +111,11 @@ func processCommand(server *server, client *client) (err error) {
 	return
 }
 
-func readCommand(reader reader) (cmd *cmd, err error) {
+func readCommand(reader reader) (name string, arguments args, err error) {
 	line, _, err := reader.ReadLine()
 	if err == nil {
 		chunks := strings.Fields(string(line))
-		cmd = newCmd(chunks[0], chunks[1:])
+		return chunks[0], args(chunks[1:]), err
 	}
 
 	return
