@@ -51,6 +51,7 @@ const (
 	msgPeek               = "peek %d\r\n"
 	msgPeekReady          = "peek-ready\r\n"
 	msgPut                = "put %d %d %d %d\r\n%s\r\n"
+	msgQuit               = "quit\r\n"
 	msgReserve            = "reserve\r\n"
 	msgReserveWithTimeout = "reserve-with-timeout %d\r\n"
 	msgStatsJob           = "stats-job %d\r\n"
@@ -357,5 +358,10 @@ func (i *Client) StatsTube(tubeName string) (stats map[string]interface{}, err e
 
 func (i *Client) Stats() (stats map[string]interface{}, err error) {
 	err = i.yamlCmd(msgStats, &stats)
+	return
+}
+
+func (i *Client) Quit() (err error) {
+	_, err = i.wordsCmd(msgQuit, "")
 	return
 }

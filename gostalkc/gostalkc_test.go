@@ -3,7 +3,7 @@ package gostalkc
 import (
 	"fmt"
 	. "github.com/manveru/gobdd"
-	"gostalk"
+	"github.com/manveru/gostalk"
 	"os"
 	"os/signal"
 	"reflect"
@@ -473,4 +473,40 @@ func WhenSortedToEqual(actual, expected []string) (string, bool) {
 		return "", true
 	}
 	return fmt.Sprintf("    expected: %#v\nto deeply be: %#v\n", expected, actual), false
+}
+
+func benchCore(b *testing.B, hostAndPort string) {
+	b.StopTimer()
+
+	client, err := DialTimeout(hostAndPort, 1*time.Second)
+	if err != nil {
+		b.Fatalf("Failed to connect: %v", err)
+	}
+	jobBody := []byte("testing")
+
+	b.StartTimer()
+
+	for i := 0; i < b.N; i += 1 {
+		_, _, err := client.Put(0, 0, 0, jobBody)
+		if err != nil {
+			b.Fatalf("Failed to Put: %v", err)
+		}
+	}
+
+	for i := 0; i < b.N; i += 1 {
+		_, _, err := client.Reserve()
+		if err != nil {
+			b.Fatalf("Failed to Reserve: %v", err)
+		}
+	}
+
+	client.Quit()
+}
+
+func BenchmarkGostalk(b *testing.B) {
+	benchCore(b, "localhost:40400")
+}
+
+func BenchmarkBeanstalk(b *testing.B) {
+	benchCore(b, "localhost:11300")
 }

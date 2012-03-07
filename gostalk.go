@@ -1,15 +1,12 @@
 package gostalk
 
 import (
-	logging "log"
 	"net"
-	"os"
 	"regexp"
 )
 
 var (
 	NAME_CHARS = regexp.MustCompile("\\A[A-Za-z0-9()_$.;/+][A-Za-z0-9()_$.;/+-]{0,200}\\z")
-	log        = logging.New(os.Stdout, "stalk: ", logging.LstdFlags)
 )
 
 const (
@@ -39,11 +36,11 @@ const (
 )
 
 func p(v ...interface{}) {
-	log.Println(v...)
+	// log.Println(v...)
 }
 
 func pf(format string, v ...interface{}) {
-	log.Printf(format, v...)
+	// log.Printf(format, v...)
 }
 
 type exception string
@@ -67,12 +64,12 @@ func Start(hostAndPort string, running chan bool) {
 
 	addr, err := net.ResolveTCPAddr("tcp", hostAndPort)
 	if err != nil {
-		log.Fatalln("net.ResolveTCPAddr", err)
+		panic("net.ResolveTCPAddr: " + err.Error())
 	}
 
 	listener, err := net.ListenTCP("tcp", addr)
 	if err != nil {
-		log.Fatalln("net.ListenTCP", err)
+		panic("net.ListenTCP: " + err.Error())
 	}
 
 	running <- true
