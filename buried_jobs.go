@@ -49,3 +49,7 @@ func (jobs *buriedJobs) kickJobs(bound int) (actual int) {
 
 	return
 }
+
+func (jobs *buriedJobs) peekJob(request *jobPeekRequest) {
+	request.success <- (*jobs)[0]
+}

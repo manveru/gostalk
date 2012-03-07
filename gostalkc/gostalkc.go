@@ -32,6 +32,7 @@ const (
 	TOUCHED       = "TOUCHED"
 	USING         = "USING"
 	WATCHING      = "WATCHING"
+	FOUND         = "FOUND"
 )
 
 const (
@@ -42,6 +43,10 @@ const (
 	msgListTubes          = "list-tubes\r\n"
 	msgListTubesWatched   = "list-tubes-watched\r\n"
 	msgListTubeUsed       = "list-tube-used\r\n"
+	msgPeekBuried         = "peek-buried\r\n"
+	msgPeekDelayed        = "peek-delayed\r\n"
+	msgPeek               = "peek %d\r\n"
+	msgPeekReady          = "peek-ready\r\n"
 	msgPut                = "put %d %d %d %d\r\n%s\r\n"
 	msgReserve            = "reserve\r\n"
 	msgReserveWithTimeout = "reserve-with-timeout %d\r\n"
@@ -109,7 +114,7 @@ func (i *Client) readLine() (line string, err error) {
 	return lineBuf.String(), nil
 }
 
-func (i *Client) wordsCmd(command string) (words []string, err error) {
+func (i *Client) wordsCmd(command string, expected string) (words []string, err error) {
 	err = i.write(command)
 	if err != nil {
 		return
@@ -121,6 +126,10 @@ func (i *Client) wordsCmd(command string) (words []string, err error) {
 	}
 
 	words = strings.Split(line, " ")
+
+	if expected != "" && words[0] != expected {
+		err = exception(words[0])
+	}
 
 	return
 }
@@ -188,24 +197,12 @@ func (i *Client) readJob(args []string) (jobId uint64, jobData []byte, err error
 }
 
 func (i *Client) Watch(tubeName string) (err error) {
-	words, err := i.wordsCmd(fmt.Sprintf(msgWatch, tubeName))
-	if err == nil {
-		if words[0] != OK {
-			err = exception(words[0])
-		}
-	}
-
+	_, err = i.wordsCmd(fmt.Sprintf(msgWatch, tubeName), OK)
 	return
 }
 
 func (i *Client) Bury(jobId uint64) (err error) {
-	words, err := i.wordsCmd(fmt.Sprintf(msgBury, jobId))
-	if err == nil {
-		if words[0] != BURIED {
-			err = exception(words[0])
-		}
-	}
-
+	_, err = i.wordsCmd(fmt.Sprintf(msgBury, jobId), BURIED)
 	return
 }
 
@@ -218,13 +215,9 @@ Otherwise it will kick delayed jobs.
 The bound argument indicates the maximum number of jobs to kick.
 */
 func (i *Client) Kick(bound int) (actuallyKicked uint64, err error) {
-	words, err := i.wordsCmd(fmt.Sprintf(msgKick, bound))
+	words, err := i.wordsCmd(fmt.Sprintf(msgKick, bound), KICKED)
 	if err == nil {
-		if words[0] == KICKED {
-			actuallyKicked, err = strconv.ParseUint(words[1], 10, 64)
-		} else {
-			err = exception(words[0])
-		}
+		actuallyKicked, err = strconv.ParseUint(words[1], 10, 64)
 	}
 	return
 }
@@ -240,38 +233,25 @@ func (i *Client) ListTubesWatched() (tubeNames []string, err error) {
 }
 
 func (i *Client) ListTubeUsed() (tubeName string, err error) {
-	words, err := i.wordsCmd(msgListTubeUsed)
+	words, err := i.wordsCmd(msgListTubeUsed, USING)
 	if err == nil {
-		if words[0] == USING {
-			tubeName = words[1]
-		} else {
-			err = exception(words[0])
-		}
+		tubeName = words[1]
 	}
 
 	return
 }
 
 func (i *Client) Ignore(tubeName string) (tubesLeft uint64, err error) {
-	words, err := i.wordsCmd(fmt.Sprintf(msgIgnore, tubeName))
-	if err != nil {
-		return
-	}
-
-	switch words[0] {
-	case WATCHING:
-		return strconv.ParseUint(words[1], 10, 64)
-	case NOT_IGNORED:
-		err = exception(NOT_IGNORED)
-	default:
-		err = exception(words[0])
+	words, err := i.wordsCmd(fmt.Sprintf(msgIgnore, tubeName), WATCHING)
+	if err == nil {
+		tubesLeft, err = strconv.ParseUint(words[1], 10, 64)
 	}
 
 	return
 }
 
 func (i *Client) Put(priority uint32, delay, ttr uint64, data []byte) (jobId uint64, buried bool, err error) {
-	words, err := i.wordsCmd(fmt.Sprintf(msgPut, priority, delay, ttr, len(data), data))
+	words, err := i.wordsCmd(fmt.Sprintf(msgPut, priority, delay, ttr, len(data), data), "")
 	if err != nil {
 		return
 	}
@@ -294,55 +274,66 @@ func (i *Client) Put(priority uint32, delay, ttr uint64, data []byte) (jobId uin
 }
 
 func (i *Client) Reserve() (jobId uint64, jobData []byte, err error) {
-	words, err := i.wordsCmd(msgReserve)
-	if err != nil {
-		return
-	}
-
-	switch words[0] {
-	case RESERVED:
+	words, err := i.wordsCmd(msgReserve, RESERVED)
+	if err == nil {
 		jobId, jobData, err = i.readJob(words[1:3])
-	default:
-		err = exception(words[0])
 	}
 
 	return
 }
 
 func (i *Client) ReserveWithTimeout(timeout int) (jobId uint64, jobData []byte, err error) {
-	words, err := i.wordsCmd(fmt.Sprintf(msgReserveWithTimeout, timeout))
-	if err != nil {
-		return
+	words, err := i.wordsCmd(fmt.Sprintf(msgReserveWithTimeout, timeout), RESERVED)
+	if err == nil {
+		jobId, jobData, err = i.readJob(words[1:])
 	}
 
-	switch words[0] {
-	case RESERVED:
-		jobId, jobData, err = i.readJob(words[1:len(words)])
-	default:
-		err = exception(words[0])
+	return
+}
+
+func (i *Client) Peek(jobId uint64) (jobData []byte, err error) {
+	words, err := i.wordsCmd(fmt.Sprintf(msgPeek, jobId), FOUND)
+	if err == nil {
+		_, jobData, err = i.readJob(words[1:3])
+	}
+
+	return
+}
+
+func (i *Client) PeekBuried() (jobId uint64, jobData []byte, err error) {
+	words, err := i.wordsCmd(msgPeekBuried, FOUND)
+	if err == nil {
+		jobId, jobData, err = i.readJob(words[1:3])
+	}
+
+	return
+}
+
+func (i *Client) PeekDelayed() (jobId uint64, jobData []byte, err error) {
+	words, err := i.wordsCmd(msgPeekDelayed, FOUND)
+	if err == nil {
+		jobId, jobData, err = i.readJob(words[1:3])
+	}
+
+	return
+}
+
+func (i *Client) PeekReady() (jobId uint64, jobData []byte, err error) {
+	words, err := i.wordsCmd(msgPeekReady, FOUND)
+	if err == nil {
+		jobId, jobData, err = i.readJob(words[1:3])
 	}
 
 	return
 }
 
 func (i *Client) Touch(jobId uint64) (err error) {
-	words, err := i.wordsCmd(fmt.Sprintf(msgTouch, jobId))
-	if err == nil {
-		if words[0] != TOUCHED {
-			err = exception(words[0])
-		}
-	}
-
+	_, err = i.wordsCmd(fmt.Sprintf(msgTouch, jobId), TOUCHED)
 	return
 }
 
 func (i *Client) Delete(jobId uint64) (err error) {
-	words, err := i.wordsCmd(fmt.Sprintf(msgDelete, jobId))
-	if err == nil {
-		if words[0] != DELETED {
-			err = exception(words[0])
-		}
-	}
+	_, err = i.wordsCmd(fmt.Sprintf(msgDelete, jobId), DELETED)
 	return
 }
 

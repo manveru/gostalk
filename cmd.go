@@ -164,6 +164,7 @@ func (cmd *cmd) listTubeUsed() {
 	cmd.assertNumberOfArguments(0)
 	cmd.respond(fmt.Sprintf("USING %s\r\n", cmd.client.usedTube.name))
 }
+
 func (cmd *cmd) pauseTube() {
 	cmd.assertNumberOfArguments(2)
 
@@ -177,17 +178,44 @@ func (cmd *cmd) pauseTube() {
 	tube.tubePause <- time.Duration(delay) * time.Second
 	cmd.respond(MSG_PAUSED)
 }
+
+func (cmd *cmd) peekByState(state string) {
+	cmd.assertNumberOfArguments(0)
+	request := &jobPeekRequest{
+		state:   state,
+		success: make(chan *Job),
+	}
+	cmd.client.usedTube.jobPeek <- request
+	job := <-request.success
+	if job == nil {
+		cmd.respond(MSG_NOT_FOUND)
+	} else {
+		cmd.respond(fmt.Sprintf(MSG_PEEK_FOUND, job.id, len(job.body), job.body))
+	}
+}
+
 func (cmd *cmd) peek() {
-	cmd.respond(MSG_INTERNAL_ERROR)
+	cmd.assertNumberOfArguments(1)
+	jobId := JobId(cmd.getInt(0))
+	job, found := cmd.server.findJob(jobId)
+
+	if found {
+		cmd.respond(fmt.Sprintf(MSG_PEEK_FOUND, job.id, len(job.body), job.body))
+	} else {
+		cmd.respond(MSG_NOT_FOUND)
+	}
 }
+
 func (cmd *cmd) peekBuried() {
-	cmd.respond(MSG_INTERNAL_ERROR)
+	cmd.peekByState(jobBuriedState)
 }
+
 func (cmd *cmd) peekDelayed() {
-	cmd.respond(MSG_INTERNAL_ERROR)
+	cmd.peekByState(jobDelayedState)
 }
+
 func (cmd *cmd) peekReady() {
-	cmd.respond(MSG_INTERNAL_ERROR)
+	cmd.peekByState(jobReadyState)
 }
 
 func (cmd *cmd) put() {
@@ -274,7 +302,7 @@ func (cmd *cmd) reserve() {
 	request := cmd.reserveCommon()
 	job := <-request.success
 	request.cancel <- true
-	cmd.respond(job.reservedString())
+	cmd.respond(fmt.Sprintf(MSG_RESERVED, job.id, len(job.body), job.body))
 }
 
 func (cmd *cmd) reserveWithTimeout() {
@@ -289,7 +317,7 @@ func (cmd *cmd) reserveWithTimeout() {
 
 	select {
 	case job := <-request.success:
-		cmd.respond(job.reservedString())
+		cmd.respond(fmt.Sprintf(MSG_RESERVED, job.id, len(job.body), job.body))
 		request.cancel <- true
 	case <-time.After(time.Duration(seconds) * time.Second):
 		cmd.respond(MSG_TIMED_OUT)

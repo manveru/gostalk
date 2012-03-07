@@ -15,6 +15,11 @@ type jobKickRequest struct {
 	success chan int
 }
 
+type jobPeekRequest struct {
+	state   string
+	success chan *Job
+}
+
 type Tube struct {
 	name     string
 	ready    *readyJobs
@@ -28,6 +33,7 @@ type Tube struct {
 	jobTouch  chan *Job
 	jobBury   chan *Job
 	jobKick   chan *jobKickRequest
+	jobPeek   chan *jobPeekRequest
 	tubePause chan time.Duration
 
 	paused         bool
@@ -75,6 +81,8 @@ func (tube *Tube) handleDemand() {
 				tube.touch(job)
 			case request := <-tube.jobKick:
 				request.success <- tube.kick(request.bound)
+			case request := <-tube.jobPeek:
+				tube.peek(request)
 			case request := <-tube.jobDemand:
 				select {
 				case request.success <- tube.reserve(request.client):
@@ -92,6 +100,8 @@ func (tube *Tube) handleDemand() {
 				tube.delete(job)
 			case job := <-tube.jobTouch:
 				tube.touch(job)
+			case request := <-tube.jobPeek:
+				tube.peek(request)
 			case request := <-tube.jobKick:
 				request.success <- tube.kick(request.bound)
 			case job := <-tube.jobSupply:
@@ -163,4 +173,17 @@ func (tube *Tube) kick(bound int) (actual int) {
 	}
 
 	return
+}
+
+func (tube *Tube) peek(request *jobPeekRequest) {
+	switch request.state {
+	case jobReadyState:
+		tube.ready.peekJob(request)
+	case jobBuriedState:
+		tube.buried.peekJob(request)
+	case jobDelayedState:
+		tube.delayed.peekJob(request)
+	default:
+		panic("Unknown jobPeekRequest: " + request.state)
+	}
 }

@@ -35,7 +35,12 @@ func (jobs *delayedJobs) deleteJob(job *Job) {
 
 func (jobs *delayedJobs) touchJob(job *Job) {}
 
-// TODO: implement?
+// TODO: implement!
 func (jobs *delayedJobs) kickJobs(bound int) (actual int) {
 	return
+}
+
+// TODO: implement!
+func (jobs *delayedJobs) peekJob(request *jobPeekRequest) {
+	request.success <- nil
 }
