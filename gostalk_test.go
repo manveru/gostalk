@@ -3,8 +3,6 @@ package gostalk
 import (
 	"bufio"
 	"fmt"
-	. "github.com/manveru/gobdd"
-	"launchpad.net/goyaml"
 	"net"
 	"reflect"
 	"sort"
@@ -12,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	. "github.com/manveru/gobdd"
+	"launchpad.net/goyaml"
 )
 
 type jobResponse struct {
@@ -157,7 +158,7 @@ func init() {
 		It("handles ignore <tube>", func() {
 			sendCommand(conn, "ignore test-tube")
 			res := readResponseWithoutBody(reader)
-			Expect(res, ToEqual, "OK")
+			Expect(res, ToEqual, "WATCHING 1")
 
 			var tubes []string
 			sendCommand(conn, "list-tubes-watched")
