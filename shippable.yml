@@ -20,5 +20,4 @@ script:
   - gocover-cobertura < coverage.txt > coverage.xml
 
 after_script:
-  - mv $PWD/junit.xml $PWD/shippable/testresults/
   - mv $PWD/coverage.xml $PWD/shippable/codecoverage/
