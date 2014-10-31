@@ -20,5 +20,5 @@ script:
   - gocover-cobertura < coverage.txt > coverage.xml
 
 after_script:
-  - mv $PWD/src/github.com/manveru/gostalk/junit.xml $PWD/shippable/testresults/
+  - mv $PWD/junit.xml $PWD/shippable/testresults/
   - mv $PWD/coverage.xml $PWD/shippable/codecoverage/
