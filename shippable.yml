@@ -6,18 +6,9 @@ go:
 install:
   - go get code.google.com/p/go.tools/cmd/cover
 
-# Make folders for the reports
-before_script:
-  - mkdir -p shippable/testresults
-  - mkdir -p shippable/codecoverage
-
 script:
   - export GOPATH=$PWD
   - export PATH=$PATH:$GOPATH/bin
-  - go get github.com/t-yuki/gocover-cobertura
   - go get -t
-  - go test -coverprofile=coverage.txt -covermode count github.com/manveru/gostalk
-  - gocover-cobertura < coverage.txt > coverage.xml
-
-after_script:
-  - mv $PWD/coverage.xml $PWD/shippable/codecoverage/
+  - go test github.com/manveru/gostalk
+  - make gstlkd
