@@ -5,11 +5,12 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"launchpad.net/goyaml"
 	"net"
 	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v2"
 )
 
 // The Client provides you with the net.Conn and bufio.ReadWriter used for the connection to the server.
@@ -174,7 +175,7 @@ func (i *Client) yamlCmd(command string, dest interface{}) (err error) {
 		err = exception(fmt.Sprintf("read only %d bytes of %d", n, len(rawYaml)))
 	}
 
-	err = goyaml.Unmarshal(rawYaml[:len(rawYaml)-1], dest)
+	err = yaml.Unmarshal(rawYaml[:len(rawYaml)-1], dest)
 	return err
 }
 

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	. "github.com/manveru/gobdd"
-	"launchpad.net/goyaml"
+	"gopkg.in/yaml.v2"
 )
 
 type jobResponse struct {
@@ -43,7 +43,7 @@ func readResponseWithBody(reader reader, body interface{}) {
 	n, err := reader.Read(rawYaml)
 	Expect(err, ToBeNil)
 	Expect(int64(n), ToEqual, bodyLen+2)
-	err = goyaml.Unmarshal(rawYaml[:len(rawYaml)-1], body)
+	err = yaml.Unmarshal(rawYaml[:len(rawYaml)-1], body)
 	Expect(err, ToBeNil)
 }
 

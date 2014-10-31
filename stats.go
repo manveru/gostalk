@@ -2,14 +2,15 @@ package gostalk
 
 import (
 	"fmt"
-	"launchpad.net/goyaml"
 	"reflect"
 	"syscall"
 	"time"
+
+	"gopkg.in/yaml.v2"
 )
 
 // adds support for serializing structs
-func toYaml(obj interface{}) (yaml []byte, err error) {
+func toYaml(obj interface{}) (out []byte, err error) {
 	objValue := reflect.ValueOf(obj)
 	objKind := objValue.Kind()
 
@@ -27,9 +28,9 @@ func toYaml(obj interface{}) (yaml []byte, err error) {
 			}
 		}
 
-		yaml, err = goyaml.Marshal(raw)
+		out, err = yaml.Marshal(raw)
 	} else {
-		yaml, err = goyaml.Marshal(obj)
+		out, err = yaml.Marshal(obj)
 	}
 	return
 }
