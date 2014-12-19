@@ -37,6 +37,7 @@ const (
 	USING         = "USING"
 	WATCHING      = "WATCHING"
 	FOUND         = "FOUND"
+	RELEASED      = "RELEASED"
 )
 
 const (
@@ -52,6 +53,7 @@ const (
 	msgPeek               = "peek %d\r\n"
 	msgPeekReady          = "peek-ready\r\n"
 	msgPut                = "put %d %d %d %d\r\n%s\r\n"
+	msgRelease            = "release %d %d %d\r\n"
 	msgQuit               = "quit\r\n"
 	msgReserve            = "reserve\r\n"
 	msgReserveWithTimeout = "reserve-with-timeout %d\r\n"
@@ -278,6 +280,25 @@ func (i *Client) Put(priority uint32, delay, ttr uint64, data []byte) (jobId uin
 		err = exception(JOB_TOO_BIG)
 	case DRAINING:
 		err = exception(DRAINING)
+	}
+
+	return
+}
+
+func (i *Client) Release(id uint64, priority uint32, delay uint64) (buried bool, err error) {
+	words, err := i.wordsCmd(fmt.Sprintf(msgRelease, id, priority, delay), "")
+	if err != nil {
+		return
+	}
+
+	switch words[0] {
+	case RELEASED:
+		// jobId, err = strconv.ParseUint(words[1], 10, 64)
+	case BURIED:
+		// jobId, err = strconv.ParseUint(words[1], 10, 64)
+		buried = true
+	case NOT_FOUND:
+		err = exception(NOT_FOUND)
 	}
 
 	return
